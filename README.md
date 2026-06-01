@@ -35,8 +35,24 @@ or similar likely next steps.
 ### Core behavior
 
 * Observes executed shell commands
-* Normalizes them into templates (e.g. `mkdir foo → mkdir DIR`)
-* Builds transition weights between command patterns
+* Normalizes them into templates via two-phase processing:
+
+  **1. Unwrap wrappers** — strip `sudo`, `time`, `nohup`, etc., recurse on inner command.
+
+  **2. Token-type classification** — split into tokens, classify each by shape:
+  * `-`/`--` prefix → `FLAG`
+  * contains `/`, starts with `.`/`~` → `PATH`
+  * URL or git remote → `REPO`
+  * hex git-hash → `HASH`
+  * numeric → `NUM`
+  * was quoted → `STR`
+  * standalone `--` → everything after becomes `KWARGS`
+  * known parent (`git`, `cargo`, `npm`) — keep subcommand as-is
+  * Then collapse consecutive same-type tokens.
+
+  Examples: `mkdir foo → mkdir PATH`, `git commit -m "init" → git commit FLAG STR`, `cargo build -- --target x86_64 → cargo build KWARGS`
+
+* Builds transition weights between normalized command patterns
 * Predicts next likely command
 * Suggests it instantly in the terminal
 
@@ -61,6 +77,7 @@ or similar likely next steps.
   * reset
   * export/import
   * diagnostics
+  * export normalized graphs as seed data for bootstrapping new users
 
 * **integrations/**
   Shell hooks (zsh, bash, fish)
@@ -118,6 +135,7 @@ In short:
 * No AI/LLM usage
 * No distributed system
 * No complex shell parsing
+* No huge lookup tables — just token-shape regex + a small list of known parent commands
 * No multi-user modeling
 
 ---
