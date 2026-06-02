@@ -1,6 +1,9 @@
 package normalize
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // DefaultParents is the default set of known parent commands whose
 // immediate subcommand (second token) is kept verbatim during normalization.
@@ -114,11 +117,14 @@ var DefaultParents = []string{
 // Token class patterns.
 var (
 	flagRe = regexp.MustCompile(`^-{1,2}`)
-	pathRe = regexp.MustCompile(`/`)
 	repoRe = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9+.-]*://|www\.)|@.*:|\.git$`)
 	hashRe = regexp.MustCompile(`^[0-9a-fA-F]{6,40}$`)
 	numRe  = regexp.MustCompile(`^-?\d+\.?\d*$`)
 )
+
+// defaultParentSet is the precomputed lookup for DefaultParents, avoiding
+// a per-call map allocation on the hot path.
+var defaultParentSet = makeSet(DefaultParents)
 
 // classifyTokens runs Phase 2 token-type classification and collapses
 // consecutive tokens of the same type.
@@ -127,12 +133,20 @@ func classifyTokens(tokens []string, parents []string) []string {
 		return nil
 	}
 
-	parentSet := makeSet(parents)
+	// Reuse the precomputed set when the caller passed DefaultParents
+	// (the common case), avoiding a per-call map allocation.
+	var parentSet map[string]bool
+	if len(parents) == len(DefaultParents) && &parents[0] == &DefaultParents[0] {
+		parentSet = defaultParentSet
+	} else {
+		parentSet = makeSet(parents)
+	}
 
 	// Phase 2a: classify each token individually.
 	classified := make([]classification, len(tokens))
+	firstTok := tokens[0]
 	for i, tok := range tokens {
-		classified[i] = classifyToken(tok, i, tokens, parentSet)
+		classified[i] = classifyToken(tok, i, firstTok, parentSet)
 	}
 
 	// Phase 2b: collapse consecutive same-type tokens.
@@ -152,7 +166,9 @@ const (
 )
 
 // classifyToken determines the classification for a single token.
-func classifyToken(tok string, idx int, tokens []string, parents map[string]bool) classification {
+// firstTok is the command's leading token, supplied separately so
+// this function does not need the full tokens slice.
+func classifyToken(tok string, idx int, firstTok string, parents map[string]bool) classification {
 	if tok == "--" {
 		return classPlain
 	}
@@ -165,7 +181,7 @@ func classifyToken(tok string, idx int, tokens []string, parents map[string]bool
 		return classPlain
 	}
 
-	if idx == 1 && parents[tokens[0]] {
+	if idx == 1 && parents[firstTok] {
 		return classPlain
 	}
 
@@ -185,7 +201,7 @@ func classifyToken(tok string, idx int, tokens []string, parents map[string]bool
 		return classHash
 	}
 
-	if pathRe.MatchString(tok) || (len(tok) > 0 && (tok[0] == '.' || tok[0] == '~')) {
+	if strings.ContainsRune(tok, '/') || (len(tok) > 0 && (tok[0] == '.' || tok[0] == '~')) {
 		return classPath
 	}
 
