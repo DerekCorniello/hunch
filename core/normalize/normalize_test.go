@@ -305,6 +305,76 @@ func TestNormalize(t *testing.T) {
 			raw:  "kubectl get pods --field-selector=status.phase=Running",
 			want: "kubectl get STR FLAG",
 		},
+		{
+			name: "6-digit pid is NUM",
+			raw:  "kill 123456",
+			want: "kill NUM",
+		},
+		{
+			name: "sudo dash unwraps to inner command",
+			raw:  "sudo - ls -la",
+			want: "ls FLAG",
+		},
+		{
+			name: "nice dash unwraps to inner command",
+			raw:  "nice - make",
+			want: "make",
+		},
+		{
+			name: "flock stdin lock file",
+			raw:  "flock - cat file",
+			want: "cat STR",
+		},
+		{
+			name: "node script after parent removal",
+			raw:  `node --eval "console.log('hi')"`,
+			want: "node FLAG STR",
+		},
+		{
+			name: "node inspect script",
+			raw:  "node --inspect server.js",
+			want: "node FLAG STR",
+		},
+		{
+			name: "npx package (not a parent)",
+			raw:  "npx create-react-app my-app",
+			want: "npx STR",
+		},
+		{
+			name: "bunx package (not a parent)",
+			raw:  "bunx eslint src/",
+			want: "bunx STR PATH",
+		},
+		{
+			name: "cmake source dir (not a parent)",
+			raw:  "cmake ..",
+			want: "cmake PATH",
+		},
+		{
+			name: "cmake build dir (not a parent)",
+			raw:  "cmake -S . -B build",
+			want: "cmake FLAG PATH FLAG STR",
+		},
+		{
+			name: "short flag",
+			raw:  "mycli -A",
+			want: "mycli FLAG",
+		},
+		{
+			name: "long flag no value",
+			raw:  "mycli --allow",
+			want: "mycli FLAG",
+		},
+		{
+			name: "long flag with equals value",
+			raw:  `mycli --allow-only="Derek"`,
+			want: "mycli FLAG",
+		},
+		{
+			name: "mixed flags and positional args",
+			raw:  "mycli -A --allow --allow-only=val arg1 arg2",
+			want: "mycli FLAG STR",
+		},
 
 		// --- Go specific workflows ---
 		{

@@ -89,6 +89,21 @@ func TestUnwrapPrefixTokens(t *testing.T) {
 		// --- Edge cases ---
 		{name: "sudo with no command", tokens: []string{"sudo"}, want: []string{"sudo"}},
 		{name: "env with only assignments", tokens: []string{"env", "FOO=bar", "BAZ=qux"}, want: []string{"env", "FOO=bar", "BAZ=qux"}},
+
+		// --- Single-dash as a wrapper flag (e.g. `sudo -` resets env) ---
+		{name: "sudo dash", tokens: []string{"sudo", "-", "ls"}, want: []string{"ls"}},
+		{name: "sudo dash with flag", tokens: []string{"sudo", "-u", "root", "-", "ls"}, want: []string{"ls"}},
+		{name: "nice dash", tokens: []string{"nice", "-", "ls"}, want: []string{"ls"}},
+		{name: "ionice dash", tokens: []string{"ionice", "-", "cmd"}, want: []string{"cmd"}},
+		{name: "taskset dash", tokens: []string{"taskset", "-", "stress-ng"}, want: []string{"stress-ng"}},
+		{name: "watch dash", tokens: []string{"watch", "-", "date"}, want: []string{"date"}},
+		{name: "stdbuf dash", tokens: []string{"stdbuf", "-", "cmd"}, want: []string{"cmd"}},
+		{name: "time dash", tokens: []string{"time", "-", "ls"}, want: []string{"ls"}},
+
+		// --- flock with `-` as stdin lock file (must NOT be a flag) ---
+		{name: "flock stdin lock file", tokens: []string{"flock", "-", "cat", "file"}, want: []string{"cat", "file"}},
+		{name: "flock stdin with opts and -c", tokens: []string{"flock", "-n", "-", "-c", "echo", "hi"}, want: []string{"echo", "hi"}},
+		{name: "flock stdin with --command", tokens: []string{"flock", "-", "--command", "ls"}, want: []string{"ls"}},
 	}
 
 	for _, tt := range tests {

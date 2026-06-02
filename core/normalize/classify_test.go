@@ -229,6 +229,26 @@ func TestClassifyTokens(t *testing.T) {
 			want:   []string{"kill", "FLAG", "NUM"},
 		},
 		{
+			name:   "6-digit pure number is NUM not HASH",
+			tokens: []string{"kill", "123456"},
+			want:   []string{"kill", "NUM"},
+		},
+		{
+			name:   "7-digit pure number is NUM not HASH",
+			tokens: []string{"echo", "1234567"},
+			want:   []string{"echo", "NUM"},
+		},
+		{
+			name:   "hex with 0x prefix is STR",
+			tokens: []string{"echo", "0x1234"},
+			want:   []string{"echo", "STR"},
+		},
+		{
+			name:   "long SHA-256 is STR not HASH",
+			tokens: []string{"echo", "6ff23d4e1fa57632e122e77577c736fbd3da9b28abcd12345abcd12345abcd"},
+			want:   []string{"echo", "STR"},
+		},
+		{
 			name:   "multiple nums collapsed",
 			tokens: []string{"seq", "1", "100"},
 			want:   []string{"seq", "NUM"},

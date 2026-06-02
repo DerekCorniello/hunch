@@ -1,11 +1,31 @@
+// Package normalize converts raw shell commands into normalized
+// template form using a two-phase pipeline.
+//
+// Phase 1 (unwrap) strips leading wrapper commands such as sudo,
+// nice, env, and chroot, recursing into the wrapped command. This
+// collapses `sudo apt update` to the same template as `apt update`.
+//
+// Phase 2 (classify) splits the command into tokens and classifies
+// each by shape: flags, paths, URLs, hashes, numbers, quoted
+// strings, and known-parent subcommands. Consecutive tokens of the
+// same type are collapsed into a single representative token.
+//
+// The output is a deterministic template suitable for use as a key
+// in a transition graph (e.g. "git push STR" or "mkdir PATH").
+//
+// Normalize is pure and stateless except for the caller-supplied
+// parent set; it performs no IO.
 package normalize
 
 import "strings"
 
-// Normalize converts a raw shell command into its normalized template form
-// using a two-phase pipeline: unwrap wrappers, then classify tokens.
+// Normalize converts a raw shell command into its normalized template form.
 //
-// If parents is nil, DefaultParents is used.
+// If parents is nil, DefaultParents is used; pass an explicit list to
+// override (e.g. when extending or restricting the set of tools whose
+// subcommand is preserved verbatim).
+//
+// Returns an empty string for empty or whitespace-only input.
 func Normalize(raw string, parents []string) string {
 	if parents == nil {
 		parents = DefaultParents
