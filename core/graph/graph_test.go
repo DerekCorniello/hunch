@@ -442,3 +442,43 @@ func joinState(s []string) string {
 	}
 	return r
 }
+
+func TestMergeValidateEmptyState(t *testing.T) {
+	g := New(2)
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	seed := []Transition{
+		{State: nil, Next: "cmd", Count: 1, LastSeen: now},
+	}
+	if err := g.Merge(seed); err == nil {
+		t.Fatal("expected error for empty state")
+	}
+}
+
+func TestMergeValidateEmptyNext(t *testing.T) {
+	g := New(2)
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	seed := []Transition{
+		{State: []string{"a"}, Next: "", Count: 1, LastSeen: now},
+	}
+	if err := g.Merge(seed); err == nil {
+		t.Fatal("expected error for empty next")
+	}
+}
+
+func TestMergeValidateNonPositiveCount(t *testing.T) {
+	g := New(2)
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	seed := []Transition{
+		{State: []string{"a"}, Next: "b", Count: 0, LastSeen: now},
+	}
+	if err := g.Merge(seed); err == nil {
+		t.Fatal("expected error for zero count")
+	}
+
+	seed = []Transition{
+		{State: []string{"a"}, Next: "b", Count: -1, LastSeen: now},
+	}
+	if err := g.Merge(seed); err == nil {
+		t.Fatal("expected error for negative count")
+	}
+}

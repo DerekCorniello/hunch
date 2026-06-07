@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
 )
 
 var Version = "dev"
@@ -47,18 +45,4 @@ Flags:
   --version, -v      Print version
   --help, -h         Print this help
 `
-}
-
-func requireArgs(args []string, n int, usage string) error {
-	if len(args) < n {
-		return errors.New(usage)
-	}
-	return nil
-}
-
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

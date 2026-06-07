@@ -81,7 +81,10 @@ func cmdDaemonStop() error {
 	}
 
 	if err := waitForSocketRemoval(opts.Socket, 5*time.Second); err != nil {
-		return fmt.Errorf("daemon did not stop: %w", err)
+		syscall.Kill(pid, syscall.SIGKILL)
+		if err2 := waitForSocketRemoval(opts.Socket, 2*time.Second); err2 != nil {
+			return fmt.Errorf("daemon did not stop: %w", err)
+		}
 	}
 
 	fmt.Println("hunch daemon stopped")

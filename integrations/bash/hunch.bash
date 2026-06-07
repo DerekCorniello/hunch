@@ -52,10 +52,10 @@ _hunch_accept() {
 	fi
 }
 
-if [[ -n "$PROMPT_COMMAND" ]]; then
-	PROMPT_COMMAND="_hunch_record; $PROMPT_COMMAND"
-else
+if [[ -z "$PROMPT_COMMAND" ]]; then
 	PROMPT_COMMAND="_hunch_record"
+elif [[ "$PROMPT_COMMAND" != *"_hunch_record"* ]]; then
+	PROMPT_COMMAND="_hunch_record; $PROMPT_COMMAND"
 fi
 
 bind -x '"\t": _hunch_accept'

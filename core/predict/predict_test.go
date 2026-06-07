@@ -333,3 +333,71 @@ func TestPredictWithLimitOne(t *testing.T) {
 		t.Errorf("Predict with limit 1 returned %d, want 1", len(suggestions))
 	}
 }
+
+func TestPredictZeroAlpha(t *testing.T) {
+	g := graph.New(2)
+	p := New(g, 720*time.Hour, 0)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cmd"}
+	g.Record(state, "next", now)
+
+	suggestions := p.Predict(types.State{
+		Previous: []types.Command{
+			{Template: ""},
+			{Template: "cmd"},
+		},
+	}, now, 0)
+
+	if len(suggestions) != 1 {
+		t.Fatalf("Predict returned %d, want 1", len(suggestions))
+	}
+	if suggestions[0].Score <= 0 || suggestions[0].Score > 1 {
+		t.Errorf("Score %f with zero alpha not in (0, 1]", suggestions[0].Score)
+	}
+}
+
+func TestPredictNearZeroHalfLife(t *testing.T) {
+	g := graph.New(2)
+	p := New(g, 1*time.Nanosecond, 0.5)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cmd"}
+	g.Record(state, "next", now)
+
+	suggestions := p.Predict(types.State{
+		Previous: []types.Command{
+			{Template: ""},
+			{Template: "cmd"},
+		},
+	}, now, 0)
+
+	if len(suggestions) != 1 {
+		t.Fatalf("Predict returned %d, want 1", len(suggestions))
+	}
+	if suggestions[0].Score <= 0 || suggestions[0].Score > 1 {
+		t.Errorf("Score %f with near-zero halfLife not in (0, 1]", suggestions[0].Score)
+	}
+}
+
+func TestPredictFutureAt(t *testing.T) {
+	g := graph.New(2)
+	p := New(g, 720*time.Hour, 0.5)
+
+	past := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	future := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	state := []string{"", "cmd"}
+	g.Record(state, "next", past)
+
+	suggestions := p.Predict(types.State{
+		Previous: []types.Command{
+			{Template: ""},
+			{Template: "cmd"},
+		},
+	}, future, 0)
+
+	if len(suggestions) != 1 {
+		t.Fatalf("Predict with future at returned %d, want 1", len(suggestions))
+	}
+}

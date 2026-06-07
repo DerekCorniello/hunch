@@ -27,7 +27,6 @@ type windowsLocker struct {
 }
 
 func (l *windowsLocker) Lock() error {
-	var bytesReserved uint32
 	var bytesToLockLow uint32 = 1
 	var bytesToLockHigh uint32 = 0
 
@@ -51,7 +50,6 @@ _OVERLAPPED := [8]byte{} // OVERLAPPED structure (simplified for advisory lock)
 }
 
 func (l *windowsLocker) Unlock() error {
-	var bytesReserved uint32
 	var bytesToUnlockLow uint32 = 1
 	var bytesToUnlockHigh uint32 = 0
 

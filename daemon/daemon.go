@@ -44,7 +44,6 @@ type daemon struct {
 	sockPath string
 	lockPath string
 	pidPath  string
-	ctx      context.Context
 }
 
 // Run starts the daemon and blocks until ctx is cancelled or a fatal
@@ -54,7 +53,6 @@ func Run(ctx context.Context, opts Options) error {
 		opts:    opts,
 		log:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel(opts.LogLevel)})),
 		flushCh: make(chan struct{}, 1),
-		ctx:     ctx,
 	}
 	d.g.Store(graph.New(2))
 
@@ -164,7 +162,9 @@ func (d *daemon) stop() {
 	}
 
 	os.Remove(d.sockPath)
-	os.Remove(d.pidPath)
+	if err := os.Remove(d.pidPath); err != nil && !os.IsNotExist(err) {
+		d.log.Warn("remove pid file", "error", err)
+	}
 
 	if d.lock != nil {
 		d.lock.Close()
@@ -191,8 +191,12 @@ func (d *daemon) recoverStaleLock() error {
 	}
 
 	d.log.Warn("removing stale lock", "pid", pid)
-	os.Remove(d.lockPath)
-	os.Remove(d.pidPath)
+	if err := os.Remove(d.lockPath); err != nil {
+		d.log.Warn("remove stale lock file", "error", err)
+	}
+	if err := os.Remove(d.pidPath); err != nil && !os.IsNotExist(err) {
+		d.log.Warn("remove stale pid file", "error", err)
+	}
 	return nil
 }
 
@@ -206,11 +210,11 @@ func (d *daemon) acceptLoop(ctx context.Context) {
 			d.log.Error("accept error", "error", err)
 			continue
 		}
-		go d.handleConn(ctx, conn)
+		go d.handleConn(conn)
 	}
 }
 
-func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
+func (d *daemon) handleConn(conn net.Conn) {
 	defer conn.Close()
 
 	req, err := parseRequest(conn)
@@ -221,23 +225,23 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 
 	switch req.Op {
 	case "record":
-		d.handleRecord(ctx, conn, req)
+		d.handleRecord(conn, req)
 	case "predict":
-		d.handlePredict(ctx, conn, req)
+		d.handlePredict(conn, req)
 	case "reset":
-		d.handleReset(ctx, conn)
+		d.handleReset(conn)
 	case "export":
-		d.handleExport(ctx, conn)
+		d.handleExport(conn)
 	case "stats":
-		d.handleStats(ctx, conn)
+		d.handleStats(conn)
 	case "normalize":
-		d.handleNormalize(ctx, conn, req)
+		d.handleNormalize(conn, req)
 	default:
 		writeError(conn, fmt.Sprintf("unknown op: %s", req.Op))
 	}
 }
 
-func (d *daemon) handleRecord(ctx context.Context, conn net.Conn, req ipc.Request) {
+func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	at, err := parseAt(req.At)
 	if err != nil {
 		writeError(conn, fmt.Sprintf("bad at: %s", err))
@@ -247,12 +251,14 @@ func (d *daemon) handleRecord(ctx context.Context, conn net.Conn, req ipc.Reques
 		at = time.Now()
 	}
 
+	parents := normalize.MergeParents(d.opts.ExtraParents)
+
 	// Normalize state and next before recording.
 	normalizedState := make([]string, len(req.State))
 	for i, raw := range req.State {
-		normalizedState[i] = normalize.Normalize(raw, nil)
+		normalizedState[i] = normalize.Normalize(raw, parents)
 	}
-	normalizedNext := normalize.Normalize(req.Next, nil)
+	normalizedNext := normalize.Normalize(req.Next, parents)
 
 	d.g.Load().Record(normalizedState, normalizedNext, at)
 	d.dirty.Add(1)
@@ -267,7 +273,7 @@ func (d *daemon) handleRecord(ctx context.Context, conn net.Conn, req ipc.Reques
 	writeOK(conn)
 }
 
-func (d *daemon) handlePredict(ctx context.Context, conn net.Conn, req ipc.Request) {
+func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	at, err := parseAt(req.At)
 	if err != nil {
 		writeError(conn, fmt.Sprintf("bad at: %s", err))
@@ -298,7 +304,7 @@ func (d *daemon) handlePredict(ctx context.Context, conn net.Conn, req ipc.Reque
 	writeSuggestions(conn, suggestions)
 }
 
-func (d *daemon) handleReset(ctx context.Context, conn net.Conn) {
+func (d *daemon) handleReset(conn net.Conn) {
 	d.flushMu.Lock()
 	newG := graph.New(2)
 	d.g.Store(newG)
@@ -311,12 +317,12 @@ func (d *daemon) handleReset(ctx context.Context, conn net.Conn) {
 	writeOK(conn)
 }
 
-func (d *daemon) handleExport(ctx context.Context, conn net.Conn) {
+func (d *daemon) handleExport(conn net.Conn) {
 	all := d.g.Load().All()
 	writeTransitions(conn, all)
 }
 
-func (d *daemon) handleStats(ctx context.Context, conn net.Conn) {
+func (d *daemon) handleStats(conn net.Conn) {
 	size := d.g.Load().Size()
 	resp := ipc.StatsResponse{
 		Size:     size,
@@ -332,12 +338,12 @@ func (d *daemon) handleStats(ctx context.Context, conn net.Conn) {
 	fmt.Fprint(conn, string(data)+"\n")
 }
 
-func (d *daemon) handleNormalize(ctx context.Context, conn net.Conn, req ipc.Request) {
+func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
 	raw := req.Next
 	if raw == "" && len(req.State) > 0 {
 		raw = req.State[len(req.State)-1]
 	}
-	template := normalize.Normalize(raw, nil)
+	template := normalize.Normalize(raw, normalize.MergeParents(d.opts.ExtraParents))
 	resp := ipc.NormalizeResponse{
 		Raw:      raw,
 		Template: template,

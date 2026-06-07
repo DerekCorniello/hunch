@@ -38,3 +38,15 @@ func Normalize(raw string, parents []string) string {
 	tokens = classifyTokens(tokens, parents)
 	return strings.Join(tokens, " ")
 }
+
+// MergeParents returns DefaultParents merged with extras. If extras is
+// empty, DefaultParents is returned unchanged.
+func MergeParents(extras []string) []string {
+	if len(extras) == 0 {
+		return DefaultParents
+	}
+	combined := make([]string, 0, len(DefaultParents)+len(extras))
+	combined = append(combined, DefaultParents...)
+	combined = append(combined, extras...)
+	return combined
+}
