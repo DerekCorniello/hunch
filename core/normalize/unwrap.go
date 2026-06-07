@@ -116,8 +116,14 @@ var wrapperConfigs = map[string]wrapperConfig{
 }
 
 // unwrapPrefixTokens strips leading wrapper commands from the token list,
-// recursing until no more wrappers are found.
+// recursing until no more wrappers are found. Leading bare env assignments
+// (FOO=bar) are also stripped before wrapper processing.
 func unwrapPrefixTokens(tokens []string) []string {
+	// Strip leading bare env assignments: FOO=bar BAZ=qux make
+	for len(tokens) > 1 && isEnvAssignment(tokens[0]) {
+		tokens = tokens[1:]
+	}
+
 	for len(tokens) > 1 && isWrapper(tokens[0]) {
 		next := wrapperCommandIndex(tokens)
 		if next < 1 || next >= len(tokens) {

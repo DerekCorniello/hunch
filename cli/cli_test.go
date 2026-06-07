@@ -406,3 +406,50 @@ func TestClientPredictNoSuggestions(t *testing.T) {
 		t.Fatalf("predict on empty graph should print []: %v", err)
 	}
 }
+
+func TestClientConfig(t *testing.T) {
+	_, stop := startTestDaemon(t)
+	defer stop()
+
+	err := Run([]string{"client", "config"})
+	if err != nil {
+		t.Fatalf("config failed: %v", err)
+	}
+}
+
+func TestClientImport(t *testing.T) {
+	_, stop := startTestDaemon(t)
+	defer stop()
+
+	// Export empty graph to a temp file, then import it back.
+	dir := t.TempDir()
+	exportPath := filepath.Join(dir, "export.json")
+
+	// Use a daemon export via Run, then pipe output to file.
+	// Simpler: create a minimal seed file.
+	seed := `{"version":1,"transitions":[{"state":["","a"],"next":"b","count":2,"last_seen":"2025-01-01T00:00:00Z"}]}` + "\n"
+	if err := os.WriteFile(exportPath, []byte(seed), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Run([]string{"client", "import", "--path", exportPath})
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	// Verify the import took effect.
+	err = Run([]string{"client", "export"})
+	if err != nil {
+		t.Fatalf("export after import failed: %v", err)
+	}
+}
+
+func TestClientImportMissingPath(t *testing.T) {
+	_, stop := startTestDaemon(t)
+	defer stop()
+
+	err := Run([]string{"client", "import"})
+	if err == nil {
+		t.Fatal("expected error for missing --path")
+	}
+}

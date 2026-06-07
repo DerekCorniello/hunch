@@ -31,6 +31,10 @@ func cmdClient(args []string) error {
 		return cmdClientNormalize(args[1:])
 	case "stats":
 		return cmdClientStats()
+	case "config":
+		return cmdClientConfig()
+	case "import":
+		return cmdClientImport(args[1:])
 	default:
 		return fmt.Errorf("unknown client op: %q\n\nops: record, predict, reset, export, normalize, stats", args[0])
 	}
@@ -248,4 +252,42 @@ func splitState(s string) []string {
 		return nil
 	}
 	return strings.Split(s, ",")
+}
+
+func cmdClientConfig() error {
+	req := ipc.Request{Op: "config"}
+
+	var resp ipc.ConfigResponse
+	if err := unmarshalResponse(req, &resp); err != nil {
+		return err
+	}
+
+	b, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+func cmdClientImport(args []string) error {
+	fs := flag.NewFlagSet("hunch client import", flag.ContinueOnError)
+	path := fs.String("path", "", "path to seed JSON file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *path == "" {
+		return errors.New("--path is required")
+	}
+
+	req := ipc.Request{
+		Op:   "import",
+		Next: *path,
+	}
+	if _, err := sendRequest(req); err != nil {
+		return err
+	}
+	fmt.Println("ok")
+	return nil
 }

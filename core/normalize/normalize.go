@@ -13,6 +13,9 @@
 // The output is a deterministic template suitable for use as a key
 // in a transition graph (e.g. "git push STR" or "mkdir PATH").
 //
+// Compound commands separated by |, &&, ||, or ; are split and each
+// segment normalized independently, then rejoined with the operator.
+//
 // Normalize is pure and stateless except for the caller-supplied
 // parent set; it performs no IO.
 package normalize
@@ -34,6 +37,37 @@ func Normalize(raw string, parents []string) string {
 	if len(tokens) == 0 {
 		return ""
 	}
+
+	// Split on compound operators and normalize each segment.
+	return normalizeSegments(tokens, parents)
+}
+
+// normalizeSegments splits tokens on |, ||, &&, and ;, normalizes each
+// segment independently, and rejoins with the operator.
+func normalizeSegments(tokens []string, parents []string) string {
+	var segments []string
+	var current []string
+
+	for _, tok := range tokens {
+		if tok == "|" || tok == "||" || tok == "&&" || tok == ";" {
+			if len(current) > 0 {
+				segments = append(segments, normalizeOne(current, parents))
+				current = nil
+			}
+			segments = append(segments, tok)
+		} else {
+			current = append(current, tok)
+		}
+	}
+	if len(current) > 0 {
+		segments = append(segments, normalizeOne(current, parents))
+	}
+
+	return strings.Join(segments, " ")
+}
+
+// normalizeOne normalizes a single command segment (no operators).
+func normalizeOne(tokens []string, parents []string) string {
 	tokens = unwrapPrefixTokens(tokens)
 	tokens = classifyTokens(tokens, parents)
 	return strings.Join(tokens, " ")

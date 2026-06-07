@@ -39,7 +39,7 @@ func usageText() string {
 Commands:
   init <shell>       Print the source line for shell integration
   daemon <action>    Manage the daemon (run|start|stop|status)
-  client <op>        Send an IPC operation (record|predict|reset|export)
+  client <op>        Send an IPC operation (record|predict|reset|export|normalize|stats|config|import)
 
 Flags:
   --version, -v      Print version

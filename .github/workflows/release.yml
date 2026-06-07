@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          go build -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$VERSION" -o hunch-${{ matrix.goos }}-${{ matrix.goarch }} .
+          if [ "${{ matrix.goos }}" = "windows" ]; then mv hunch-${{ matrix.goos }}-${{ matrix.goarch }} hunch-${{ matrix.goos }}-${{ matrix.goarch }}.exe; fi
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunch-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: hunch-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: hunch-*/*
+          generate_release_notes: true

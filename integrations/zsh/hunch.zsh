@@ -1,4 +1,6 @@
 _HUNCH_BIN=${HUNCH_BIN:-hunch}
+# Accept keys: right, end (set _HUNCH_ACCEPT_KEYS env var to override)
+: ${_HUNCH_ACCEPT_KEYS:=right end}
 
 typeset -ga _HUNCH_PREV
 _HUNCH_PREV=("" "")

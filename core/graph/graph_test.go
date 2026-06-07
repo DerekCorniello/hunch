@@ -239,27 +239,28 @@ func TestGraphSize(t *testing.T) {
 	}
 }
 
-func TestGraphDecayNoOp(t *testing.T) {
+func TestGraphDecayAutoTicks(t *testing.T) {
 	g := New(2)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	g.Record([]string{"", "cmd"}, "next", now)
+
 	before := g.Size()
-	g.Record([]string{"", "cmd"}, "next", now)
 
 	after := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	g.Decay(after, 720*time.Hour)
 
+	// Recent entry should survive decay.
 	if g.Size() != before {
-		t.Errorf("Size after Decay = %d, want %d (no-op)", g.Size(), before)
+		t.Errorf("Size after Decay = %d, want %d", g.Size(), before)
 	}
 
 	transitions := g.Transitions([]string{"", "cmd"})
 	if len(transitions) != 1 {
 		t.Fatalf("Transitions after Decay = %d, want 1", len(transitions))
 	}
-	if transitions[0].Count != 2 {
-		t.Errorf("Count after Decay = %d, want 2", transitions[0].Count)
+	if transitions[0].Count != 1 {
+		t.Errorf("Count after Decay = %d, want 1", transitions[0].Count)
 	}
 }
 

@@ -3,6 +3,7 @@ package normalize
 import (
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // DefaultParents is the default set of known parent commands whose
@@ -126,6 +127,11 @@ var (
 // a per-call map allocation on the hot path.
 var defaultParentSet = makeSet(DefaultParents)
 
+// classifiedPool reduces allocations on repeated classifyToken calls.
+var classifiedPool = sync.Pool{
+	New: func() interface{} { return make([]classification, 0, 32) },
+}
+
 // classifyTokens runs Phase 2 token-type classification and collapses
 // consecutive tokens of the same type.
 func classifyTokens(tokens []string, parents []string) []string {
@@ -143,14 +149,23 @@ func classifyTokens(tokens []string, parents []string) []string {
 	}
 
 	// Phase 2a: classify each token individually.
-	classified := make([]classification, len(tokens))
+	n := len(tokens)
+	pooled := classifiedPool.Get().([]classification)
+	if cap(pooled) < n {
+		pooled = make([]classification, n)
+	} else {
+		pooled = pooled[:n]
+	}
 	firstTok := tokens[0]
 	for i, tok := range tokens {
-		classified[i] = classifyToken(tok, i, firstTok, parentSet)
+		pooled[i] = classifyToken(tok, i, firstTok, parentSet)
 	}
 
 	// Phase 2b: collapse consecutive same-type tokens.
-	return collapseTokens(tokens, classified)
+	result := collapseTokens(tokens, pooled)
+	pooled = pooled[:0]
+	classifiedPool.Put(pooled)
+	return result
 }
 
 type classification int

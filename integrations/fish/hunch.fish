@@ -1,6 +1,10 @@
 if not set -q HUNCH_BIN
 	set -g HUNCH_BIN hunch
 end
+# Accept keys: right, end (set _hunch_accept_keys env var to override)
+if not set -q _hunch_accept_keys
+	set -g _hunch_accept_keys right end
+end
 
 set -g _hunch_prev1 ""
 set -g _hunch_prev2 ""

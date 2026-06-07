@@ -1,4 +1,6 @@
 _HUNCH_BIN=${HUNCH_BIN:-hunch}
+# Accept key: tab (set _HUNCH_ACCEPT_KEYS env var to override)
+: ${_HUNCH_ACCEPT_KEYS:=tab}
 
 _HUNCH_PREV1=""
 _HUNCH_PREV2=""

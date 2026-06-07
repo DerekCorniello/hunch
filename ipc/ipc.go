@@ -55,16 +55,24 @@ type ErrorResponse struct {
 
 // StatsResponse is a stats response.
 type StatsResponse struct {
-	Size      int    `json:"size"`
-	HalfLife  string `json:"half_life"`
-	Alpha     float64 `json:"alpha"`
-	DBPath    string `json:"db_path"`
+	Size     int     `json:"size"`
+	HalfLife string  `json:"half_life"`
+	Alpha    float64 `json:"alpha"`
+	DBPath   string  `json:"db_path"`
 }
 
 // NormalizeResponse is a normalize response.
 type NormalizeResponse struct {
 	Raw      string `json:"raw"`
 	Template string `json:"template"`
+}
+
+// ConfigResponse is a config response.
+type ConfigResponse struct {
+	AcceptKeys   []string `json:"accept_keys"`
+	ExtraParents []string `json:"extra_parents"`
+	HalfLife     string   `json:"half_life"`
+	Alpha        float64  `json:"alpha"`
 }
 
 // TransitionFromGraph converts a graph.Transition to TransitionJSON.

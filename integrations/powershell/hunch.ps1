@@ -1,4 +1,6 @@
 $HunchBin = if ($env:HUNCH_BIN) { $env:HUNCH_BIN } else { "hunch" }
+# Accept keys: right, end (set $env:_HUNCH_ACCEPT_KEYS env var to override)
+if (-not $env:_HUNCH_ACCEPT_KEYS) { $env:_HUNCH_ACCEPT_KEYS = "right,end" }
 
 $script:HunchPrev1 = ""
 $script:HunchPrev2 = ""

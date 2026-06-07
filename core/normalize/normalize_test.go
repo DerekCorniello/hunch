@@ -284,24 +284,24 @@ func TestNormalize(t *testing.T) {
 			want: "terraform plan FLAG",
 		},
 
-		// --- Pipes (|) — pipe and subsequent command collapse to STR ---
+		// --- Pipes (|) — each segment normalized independently ---
 		{
-			name: "pipe collapses to STR",
+			name: "pipe separates segments",
 			raw:  "git log | grep fix",
-			want: "git log STR",
+			want: "git log | grep STR",
 		},
 		{
 			name: "multi-pipe",
 			raw:  "npm test | tap-json | grep fail",
-			want: "npm test STR",
+			want: "npm test | tap-json | grep STR",
 		},
 		{
 			name: "pipe with flags",
 			raw:  "grep -r TODO ./src | xargs rm",
-			want: "grep FLAG STR PATH STR",
+			want: "grep FLAG STR PATH | xargs STR",
 		},
 
-		// --- Redirects — tokens collapse into surrounding STR/PATH ---
+		// --- Redirects — non-operator symbols collapse normally ---
 		{
 			name: "redirect stdout",
 			raw:  "echo hello > /dev/null",
@@ -320,10 +320,10 @@ func TestNormalize(t *testing.T) {
 		{
 			name: "redirect with pipe",
 			raw:  "make 2>&1 | tee build.log",
-			want: "make STR",
+			want: "make STR | tee STR",
 		},
 
-		// --- Heredocs — multi-line input collapses to STR ---
+		// --- Heredocs — multi-line input is joined as one token ---
 		{
 			name: "heredoc",
 			raw:  "cat <<EOF\nhello\nEOF",
@@ -332,7 +332,36 @@ func TestNormalize(t *testing.T) {
 		{
 			name: "heredoc with pipe",
 			raw:  "cat <<'PY' | python\nimport os\nPY",
-			want: "cat STR",
+			want: "cat STR | python STR",
+		},
+
+		// --- Bare env prefix unwrapping ---
+		{
+			name: "bare env assignment",
+			raw:  "FOO=bar make",
+			want: "make",
+		},
+		{
+			name: "multiple env assignments",
+			raw:  "FOO=bar BAZ=qux make",
+			want: "make",
+		},
+		{
+			name: "env assignment with no command",
+			raw:  "FOO=bar",
+			want: "FOO=bar",
+		},
+
+		// --- Compound operators ---
+		{
+			name: "and-operator",
+			raw:  "make && make install",
+			want: "make && make STR",
+		},
+		{
+			name: "or-operator pipe",
+			raw:  "make || echo fail",
+			want: "make || echo STR",
 		},
 
 		// --- Edge cases ---

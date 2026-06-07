@@ -137,6 +137,9 @@ func (d *daemon) start(ctx context.Context) error {
 	go d.flushLoop(ctx)
 
 	// Start IPC listener.
+	if len(d.sockPath) >= 104 {
+		return fmt.Errorf("socket path too long: %s (max ~104 bytes on Unix)", d.sockPath)
+	}
 	listener, err := net.Listen("unix", d.sockPath)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
@@ -236,6 +239,10 @@ func (d *daemon) handleConn(conn net.Conn) {
 		d.handleStats(conn)
 	case "normalize":
 		d.handleNormalize(conn, req)
+	case "config":
+		d.handleConfig(conn)
+	case "import":
+		d.handleImport(conn, req)
 	default:
 		writeError(conn, fmt.Sprintf("unknown op: %s", req.Op))
 	}
@@ -312,6 +319,7 @@ func (d *daemon) handleReset(conn net.Conn) {
 	if err := d.st.clear(); err != nil {
 		d.log.Error("clear store", "error", err)
 	}
+	d.dirty.Store(0)
 	d.flushMu.Unlock()
 
 	writeOK(conn)
@@ -356,6 +364,34 @@ func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
 	fmt.Fprint(conn, string(data)+"\n")
 }
 
+func (d *daemon) handleConfig(conn net.Conn) {
+	resp := ipc.ConfigResponse{
+		AcceptKeys:   d.opts.AcceptKeys,
+		ExtraParents: d.opts.ExtraParents,
+		HalfLife:     d.opts.HalfLife().String(),
+		Alpha:        d.opts.Alpha,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		writeError(conn, "marshal config")
+		return
+	}
+	fmt.Fprint(conn, string(data)+"\n")
+}
+
+func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
+	if req.Next == "" {
+		writeError(conn, "import path required")
+		return
+	}
+	if err := d.importSeed(req.Next); err != nil {
+		writeError(conn, fmt.Sprintf("import failed: %v", err))
+		return
+	}
+	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha))
+	writeOK(conn)
+}
+
 // flushLoop periodically flushes the in-memory graph to SQLite.
 func (d *daemon) flushLoop(ctx context.Context) {
 	ticker := time.NewTicker(flushInterval)
@@ -388,6 +424,7 @@ func (d *daemon) flush() {
 		d.log.Error("flush failed", "error", err)
 		return
 	}
+	d.dirty.Store(0)
 	d.log.Debug("flushed", "count", len(all))
 }
 

@@ -13,14 +13,18 @@ import (
 )
 
 func cmdDaemonStart() error {
-	selfPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve binary path: %w", err)
-	}
-
 	opts := daemon.LoadConfig()
 	if opts.Socket == "" {
 		return fmt.Errorf("could not determine socket path; set HUNCH_SOCKET")
+	}
+
+	selfPath := opts.DaemonBin
+	if selfPath == "" {
+		var err error
+		selfPath, err = os.Executable()
+		if err != nil {
+			return fmt.Errorf("resolve binary path: %w", err)
+		}
 	}
 
 	cmd := exec.Command(selfPath, "daemon", "run")

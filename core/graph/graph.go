@@ -9,6 +9,7 @@ package graph
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -101,20 +102,25 @@ func (g *Graph) Transitions(state []string) []Transition {
 	return result
 }
 
-// Decay is a hook for future compaction. In v1 it is a no-op.
-//
-// The actual decay formula is applied ephemerally at query time by the
-// predict package (weight = exp(-age / halfLife)). Keeping raw counts
-// in storage is deliberate: it preserves signal from old-but-once-strong
-// transitions and avoids destructive compaction. Storage is bounded at
-// ~10k–100k entries for a single user, so there is no compaction pressure.
-//
-// If compaction is added in a future version (pruning entries where
-// effective weight has fallen below epsilon), this method will acquire
-// the write lock and perform the sweep.
+// Decay prunes transitions whose effective weight falls below epsilon.
+// The effective weight is count * exp(-age / halfLife).
 func (g *Graph) Decay(at time.Time, halfLife time.Duration) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
+	const epsilon = 0.001
+	for sk, inner := range g.m {
+		for next, e := range inner {
+			age := at.Sub(e.lastSeen)
+			weight := float64(e.count) * math.Exp(-float64(age)/float64(halfLife))
+			if weight < epsilon {
+				delete(inner, next)
+			}
+		}
+		if len(inner) == 0 {
+			delete(g.m, sk)
+		}
+	}
 }
 
 // Merge incorporates a set of seed transitions into the graph.
