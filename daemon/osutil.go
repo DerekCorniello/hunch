@@ -16,3 +16,8 @@ type Locker interface {
 
 // ErrLocked is returned by Locker.Lock when the lock is held by another process.
 var ErrLocked = errors.New("lock already held")
+
+// ProcessExists reports whether a process with the given PID is alive.
+func ProcessExists(pid int) (bool, error) {
+	return processExists(pid)
+}
