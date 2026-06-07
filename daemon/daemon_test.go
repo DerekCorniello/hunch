@@ -73,8 +73,8 @@ func TestDaemonRecordPredictRoundtrip(t *testing.T) {
 	conn := dial(t, socket)
 	writeJSON(t, conn, map[string]interface{}{
 		"op":    "record",
-		"state": []string{"", "git add PATH"},
-		"next":  "git commit FLAG STR",
+		"state": []string{"", "git add ."},
+		"next":  "git commit -m \"init\"",
 	})
 	var resp map[string]interface{}
 	readJSON(t, conn, &resp)
@@ -225,8 +225,8 @@ func TestDaemonExport(t *testing.T) {
 	conn := dial(t, socket)
 	writeJSON(t, conn, map[string]interface{}{
 		"op":    "record",
-		"state": []string{"", "git add PATH"},
-		"next":  "git commit FLAG STR",
+		"state": []string{"", "git add ."},
+		"next":  "git commit -m \"init\"",
 	})
 	var resp map[string]interface{}
 	readJSON(t, conn, &resp)
@@ -307,8 +307,8 @@ func TestDaemonPredictFiltersByPrefix(t *testing.T) {
 	if len(predResp.Suggestions) != 1 {
 		t.Fatalf("expected 1 suggestion matching prefix, got %d", len(predResp.Suggestions))
 	}
-	if predResp.Suggestions[0].Template != "git push origin main" {
-		t.Errorf("template = %q, want %q", predResp.Suggestions[0].Template, "git push origin main")
+	if predResp.Suggestions[0].Template != "git push STR" {
+		t.Errorf("template = %q, want %q", predResp.Suggestions[0].Template, "git push STR")
 	}
 }
 
@@ -549,5 +549,52 @@ func TestDaemonExportOrderStable(t *testing.T) {
 			t.Fatalf("export order changed: was %q, now %q", lastExport, order)
 		}
 		lastExport = order
+	}
+}
+
+func TestDaemonNormalizeOp(t *testing.T) {
+	_, _, socket := startDaemon(t, LoadConfig())
+
+	conn := dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op":   "normalize",
+		"next": "git commit -m \"init\"",
+	})
+	var resp struct {
+		Raw      string `json:"raw"`
+		Template string `json:"template"`
+	}
+	readJSON(t, conn, &resp)
+	conn.Close()
+
+	if resp.Raw != "git commit -m \"init\"" {
+		t.Errorf("raw = %q, want %q", resp.Raw, "git commit -m \"init\"")
+	}
+	if resp.Template != "git commit FLAG STR" {
+		t.Errorf("template = %q, want %q", resp.Template, "git commit FLAG STR")
+	}
+}
+
+func TestDaemonStatsOp(t *testing.T) {
+	_, _, socket := startDaemon(t, LoadConfig())
+
+	conn := dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op": "stats",
+	})
+	var resp struct {
+		Size     int     `json:"size"`
+		HalfLife string  `json:"half_life"`
+		Alpha    float64 `json:"alpha"`
+		DBPath   string  `json:"db_path"`
+	}
+	readJSON(t, conn, &resp)
+	conn.Close()
+
+	if resp.Size != 0 {
+		t.Errorf("size = %d, want 0", resp.Size)
+	}
+	if resp.Alpha != 0.5 {
+		t.Errorf("alpha = %f, want 0.5", resp.Alpha)
 	}
 }

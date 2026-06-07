@@ -8,6 +8,7 @@
 package graph
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -122,6 +123,10 @@ func (g *Graph) Decay(at time.Time, halfLife time.Duration) {
 //   - Counts are additive (count += seed.Count).
 //   - LastSeen is the max of the existing and seed timestamps.
 func (g *Graph) Merge(seed []Transition) error {
+	if err := validateTransitions(seed); err != nil {
+		return err
+	}
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -209,4 +214,21 @@ func (g *Graph) Size() int {
 // identifiers), so it is a safe separator that preserves order.
 func stateKey(state []string) string {
 	return strings.Join(state, "\x00")
+}
+
+// validateTransitions checks that all transitions have non-empty state,
+// non-empty next, and positive count.
+func validateTransitions(seed []Transition) error {
+	for i, t := range seed {
+		if len(t.State) == 0 {
+			return fmt.Errorf("transition %d: empty state", i)
+		}
+		if t.Next == "" {
+			return fmt.Errorf("transition %d: empty next", i)
+		}
+		if t.Count <= 0 {
+			return fmt.Errorf("transition %d: count must be positive, got %d", i, t.Count)
+		}
+	}
+	return nil
 }

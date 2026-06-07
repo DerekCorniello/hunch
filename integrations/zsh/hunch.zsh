@@ -38,17 +38,15 @@ _hunch_predict() {
 	[[ "$BUFFER" == "$_HUNCH_LAST_BUFFER" ]] && return
 	_HUNCH_LAST_BUFFER="$BUFFER"
 
-	local result suggestion suffix
-	result=$("$_HUNCH_BIN" client predict \
+	local suggestion
+	suggestion=$("$_HUNCH_BIN" client predict \
 		--state "${(j.,.)_HUNCH_PREV}" \
 		--prefix "$BUFFER" \
-		--limit 1 2>/dev/null)
-
-	suggestion=$(echo "$result" | command grep -o '"template":"[^"]*"' | head -1 | sed 's/"template":"//;s/"//')
+		--limit 1 \
+		--template 2>/dev/null)
 
 	if [[ -n "$suggestion" && "$suggestion" != "$BUFFER" ]]; then
-		suffix="${suggestion#$BUFFER}"
-		POSTDISPLAY="$suffix"
+		POSTDISPLAY="${suggestion#$BUFFER}"
 	else
 		POSTDISPLAY=""
 	fi

@@ -4,23 +4,22 @@ package daemon
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
+	"unsafe"
 )
 
-// processExists checks whether a process with the given PID is alive.
-func processExists(pid int) (bool, error) {
-	handle, err := syscall.OpenProcess(syscall.PROCESS_QUERY_INFORMATION, false, uint32(pid))
-	if err != nil {
-		if err == syscall.ERROR_INVALID_PARAMETER {
-			return false, nil
-		}
-		return false, err
-	}
-	syscall.CloseHandle(handle)
-	return true, nil
-}
+var (
+	modkernel32    = syscall.NewLazyDLL("kernel32.dll")
+	procLockFileEx = modkernel32.NewProc("LockFileEx")
+)
+
+const (
+	lockfileExclusiveLock = 0x00000002
+	lockfileFailImmediately = 0x00000001
+)
 
 // windowsLocker implements Locker via LockFileEx.
 type windowsLocker struct {
@@ -28,14 +27,51 @@ type windowsLocker struct {
 }
 
 func (l *windowsLocker) Lock() error {
-	return errors.New("file locking not yet implemented on Windows")
+	var bytesReserved uint32
+	var bytesToLockLow uint32 = 1
+	var bytesToLockHigh uint32 = 0
+
+_OVERLAPPED := [8]byte{} // OVERLAPPED structure (simplified for advisory lock)
+
+	ret, _, err := procLockFileEx.Call(
+		uintptr(l.f.Fd()),
+		uintptr(lockfileExclusiveLock|lockfileFailImmediately),
+		0,
+		uintptr(bytesToLockLow),
+		uintptr(bytesToLockHigh),
+		uintptr(unsafe.Pointer(&_OVERLAPPED[0])),
+	)
+	if ret == 0 {
+		if errors.Is(err, syscall.ERROR_LOCK_VIOLATION) || errors.Is(err, syscall.ERROR_INVALID_PARAMETER) {
+			return ErrLocked
+		}
+		return fmt.Errorf("LockFileEx: %w", err)
+	}
+	return nil
 }
 
 func (l *windowsLocker) Unlock() error {
+	var bytesReserved uint32
+	var bytesToUnlockLow uint32 = 1
+	var bytesToUnlockHigh uint32 = 0
+
+_OVERLAPPED := [8]byte{}
+
+	ret, _, err := syscall.UnlockFileEx(
+		uintptr(l.f.Fd()),
+		0,
+		uintptr(bytesToUnlockLow),
+		uintptr(bytesToUnlockHigh),
+		uintptr(unsafe.Pointer(&_OVERLAPPED[0])),
+	)
+	if ret == 0 {
+		return fmt.Errorf("UnlockFileEx: %w", err)
+	}
 	return nil
 }
 
 func (l *windowsLocker) Close() error {
+	l.Unlock()
 	return l.f.Close()
 }
 
@@ -43,18 +79,38 @@ func (l *windowsLocker) Close() error {
 func OpenLock(path string) (Locker, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open lock file: %w", err)
 	}
 	return &windowsLocker{f: f}, nil
 }
 
-// SocketURL returns the named pipe URL for Windows.
+// processExists checks whether a process with the given PID is alive.
+func processExists(pid int) (bool, error) {
+	handle, err := syscall.OpenProcess(syscall.PROCESS_QUERY_INFORMATION, false, uint32(pid))
+	if err != nil {
+		if errors.Is(err, syscall.ERROR_INVALID_PARAMETER) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer syscall.CloseHandle(handle)
+
+	var exitCode uint32
+	err = syscall.GetExitCodeProcess(handle, &exitCode)
+	if err != nil {
+		return false, err
+	}
+	// exitCode == STILL_ACTIVE (259) means process is still running
+	return exitCode == 259, nil
+}
+
+// SocketURL returns the socket path for Windows.
+// Go 1.24+ supports Unix domain sockets on Windows via file paths.
 func SocketURL(path string) string {
-	return `\\.\pipe\` + path
+	return path
 }
 
 // CacheDir returns the Windows cache directory for hunch.
-// Uses %LocalAppData%, falling back to %TEMP%.
 func CacheDir() (string, error) {
 	d := os.Getenv("LocalAppData")
 	if d == "" {

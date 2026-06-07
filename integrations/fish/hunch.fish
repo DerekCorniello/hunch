@@ -37,18 +37,12 @@ function _hunch_predict
 	set -l cmdline (commandline -p)
 	test -n "$cmdline" || return
 
-	set -l result
-	set result ($HUNCH_BIN client predict \
+	set -l suggestion
+	set suggestion ($HUNCH_BIN client predict \
 		--state "$_hunch_prev1,$_hunch_prev2" \
 		--prefix "$cmdline" \
-		--limit 1 2>/dev/null)
-
-	set -l suggestion ""
-	for line in $result
-		if string match -q '*template*' -- $line
-			set suggestion (echo $line | sed -n 's/.*"template":"\([^"]*\)".*/\1/p')
-		end
-	end
+		--limit 1 \
+		--template 2>/dev/null)
 
 	if test -n "$suggestion" -a "$suggestion" != "$cmdline"
 		set -g _hunch_suggestion $suggestion

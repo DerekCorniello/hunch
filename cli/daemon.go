@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -57,35 +56,6 @@ func cmdDaemonRun(args []string) error {
 	if err := daemon.Run(ctx, opts); err != nil {
 		return fmt.Errorf("daemon: %w", err)
 	}
-	return nil
-}
-
-func cmdDaemonStart() error {
-	selfPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve binary path: %w", err)
-	}
-
-	opts := daemon.LoadConfig()
-	if opts.Socket == "" {
-		return fmt.Errorf("could not determine socket path; set HUNCH_SOCKET")
-	}
-
-	cmd := exec.Command(selfPath, "daemon", "run")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start daemon: %w", err)
-	}
-
-	if err := waitForSocket(opts.Socket, 2*time.Second); err != nil {
-		return fmt.Errorf("daemon did not start: %w", err)
-	}
-
-	fmt.Printf("hunch daemon started (socket: %s, pid: %d)\n", opts.Socket, cmd.Process.Pid)
 	return nil
 }
 

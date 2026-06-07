@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/DerekCorniello/hunch/core/graph"
+	"github.com/DerekCorniello/hunch/core/normalize"
 	"github.com/DerekCorniello/hunch/core/predict"
 	"github.com/DerekCorniello/hunch/core/types"
+	"github.com/DerekCorniello/hunch/ipc"
 )
 
 const (
@@ -42,6 +44,7 @@ type daemon struct {
 	sockPath string
 	lockPath string
 	pidPath  string
+	ctx      context.Context
 }
 
 // Run starts the daemon and blocks until ctx is cancelled or a fatal
@@ -51,6 +54,7 @@ func Run(ctx context.Context, opts Options) error {
 		opts:    opts,
 		log:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel(opts.LogLevel)})),
 		flushCh: make(chan struct{}, 1),
+		ctx:     ctx,
 	}
 	d.g.Store(graph.New(2))
 
@@ -71,9 +75,12 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 func (d *daemon) start(ctx context.Context) error {
-	// Ensure data directory exists.
+	// Ensure data and socket directories exist.
 	if err := os.MkdirAll(filepath.Dir(d.opts.DBPath), 0755); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(d.sockPath), 0755); err != nil {
+		return fmt.Errorf("create socket dir: %w", err)
 	}
 
 	// Acquire lock with stale recovery.
@@ -199,11 +206,11 @@ func (d *daemon) acceptLoop(ctx context.Context) {
 			d.log.Error("accept error", "error", err)
 			continue
 		}
-		go d.handleConn(conn)
+		go d.handleConn(ctx, conn)
 	}
 }
 
-func (d *daemon) handleConn(conn net.Conn) {
+func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	req, err := parseRequest(conn)
@@ -214,19 +221,23 @@ func (d *daemon) handleConn(conn net.Conn) {
 
 	switch req.Op {
 	case "record":
-		d.handleRecord(conn, req)
+		d.handleRecord(ctx, conn, req)
 	case "predict":
-		d.handlePredict(conn, req)
+		d.handlePredict(ctx, conn, req)
 	case "reset":
-		d.handleReset(conn)
+		d.handleReset(ctx, conn)
 	case "export":
-		d.handleExport(conn)
+		d.handleExport(ctx, conn)
+	case "stats":
+		d.handleStats(ctx, conn)
+	case "normalize":
+		d.handleNormalize(ctx, conn, req)
 	default:
 		writeError(conn, fmt.Sprintf("unknown op: %s", req.Op))
 	}
 }
 
-func (d *daemon) handleRecord(conn net.Conn, req request) {
+func (d *daemon) handleRecord(ctx context.Context, conn net.Conn, req ipc.Request) {
 	at, err := parseAt(req.At)
 	if err != nil {
 		writeError(conn, fmt.Sprintf("bad at: %s", err))
@@ -236,7 +247,14 @@ func (d *daemon) handleRecord(conn net.Conn, req request) {
 		at = time.Now()
 	}
 
-	d.g.Load().Record(req.State, req.Next, at)
+	// Normalize state and next before recording.
+	normalizedState := make([]string, len(req.State))
+	for i, raw := range req.State {
+		normalizedState[i] = normalize.Normalize(raw, nil)
+	}
+	normalizedNext := normalize.Normalize(req.Next, nil)
+
+	d.g.Load().Record(normalizedState, normalizedNext, at)
 	d.dirty.Add(1)
 
 	if d.dirty.Load() >= flushThreshold {
@@ -249,7 +267,7 @@ func (d *daemon) handleRecord(conn net.Conn, req request) {
 	writeOK(conn)
 }
 
-func (d *daemon) handlePredict(conn net.Conn, req request) {
+func (d *daemon) handlePredict(ctx context.Context, conn net.Conn, req ipc.Request) {
 	at, err := parseAt(req.At)
 	if err != nil {
 		writeError(conn, fmt.Sprintf("bad at: %s", err))
@@ -280,7 +298,7 @@ func (d *daemon) handlePredict(conn net.Conn, req request) {
 	writeSuggestions(conn, suggestions)
 }
 
-func (d *daemon) handleReset(conn net.Conn) {
+func (d *daemon) handleReset(ctx context.Context, conn net.Conn) {
 	d.flushMu.Lock()
 	newG := graph.New(2)
 	d.g.Store(newG)
@@ -293,9 +311,43 @@ func (d *daemon) handleReset(conn net.Conn) {
 	writeOK(conn)
 }
 
-func (d *daemon) handleExport(conn net.Conn) {
+func (d *daemon) handleExport(ctx context.Context, conn net.Conn) {
 	all := d.g.Load().All()
 	writeTransitions(conn, all)
+}
+
+func (d *daemon) handleStats(ctx context.Context, conn net.Conn) {
+	size := d.g.Load().Size()
+	resp := ipc.StatsResponse{
+		Size:     size,
+		HalfLife: d.opts.HalfLife().String(),
+		Alpha:    d.opts.Alpha,
+		DBPath:   d.opts.DBPath,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		writeError(conn, "marshal stats")
+		return
+	}
+	fmt.Fprint(conn, string(data)+"\n")
+}
+
+func (d *daemon) handleNormalize(ctx context.Context, conn net.Conn, req ipc.Request) {
+	raw := req.Next
+	if raw == "" && len(req.State) > 0 {
+		raw = req.State[len(req.State)-1]
+	}
+	template := normalize.Normalize(raw, nil)
+	resp := ipc.NormalizeResponse{
+		Raw:      raw,
+		Template: template,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		writeError(conn, "marshal normalize")
+		return
+	}
+	fmt.Fprint(conn, string(data)+"\n")
 }
 
 // flushLoop periodically flushes the in-memory graph to SQLite.
@@ -379,5 +431,3 @@ func parseLogLevel(s string) slog.Level {
 		return slog.LevelInfo
 	}
 }
-
-

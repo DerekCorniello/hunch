@@ -33,16 +33,14 @@ _hunch_record() {
 }
 
 _hunch_predict() {
-	local result suggestion
-	result=$("$_HUNCH_BIN" client predict \
+	_HUNCH_SUGGESTION=$("$_HUNCH_BIN" client predict \
 		--state "$_HUNCH_PREV1,$_HUNCH_PREV2" \
 		--prefix "$READLINE_LINE" \
-		--limit 1 2>/dev/null)
+		--limit 1 \
+		--template 2>/dev/null)
 
-	suggestion=$(echo "$result" | grep -o '"template":"[^"]*"' | head -1 | sed 's/"template":"//;s/"//')
-
-	if [[ -n "$suggestion" && "$suggestion" != "${READLINE_LINE:-}" ]]; then
-		_HUNCH_SUGGESTION="$suggestion"
+	if [[ -z "$_HUNCH_SUGGESTION" || "$_HUNCH_SUGGESTION" == "${READLINE_LINE:-}" ]]; then
+		_HUNCH_SUGGESTION=""
 	fi
 }
 

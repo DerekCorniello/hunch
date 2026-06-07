@@ -39,26 +39,19 @@ function Invoke-HunchPredict {
 	}
 
 	try {
-		$result = & $HunchBin client predict `
+		$suggestion = & $HunchBin client predict `
 			--state "$script:HunchPrev1,$script:HunchPrev2" `
 			--prefix $Buffer `
-			--limit 1 2>$null
+			--limit 1 `
+			--template 2>$null
 
-		if ($result) {
-			$json = $result | ConvertFrom-Json
-			if ($json.suggestions -and $json.suggestions.Count -gt 0) {
-				$suggestion = $json.suggestions[0].template
-				if ($suggestion -ne $Buffer) {
-					$script:HunchSuggestion = $suggestion
-					return
-				}
-			}
+		if ($suggestion -and $suggestion -ne $Buffer) {
+			$script:HunchSuggestion = $suggestion
+			return
 		}
 	} catch {}
 	$script:HunchSuggestion = ""
 }
-
-$script:HunchRecordEnabled = $true
 
 [Microsoft.PowerShell.PSConsoleReadLine]::SetKeyHandler([ConsoleKey]::RightArrow, {
 	param($key, $arg)

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,13 +47,16 @@ func defaults() Options {
 //	HUNCH_EXTRA_PARENTS (comma-sep), HUNCH_LOG_LEVEL
 func LoadConfig() Options {
 	opts := defaults()
+	log := slog.Default()
 
 	cfgDir, err := ConfigDir()
 	if err == nil {
 		cfgPath := filepath.Join(cfgDir, "hunch", "config.toml")
 		data, err := os.ReadFile(cfgPath)
 		if err == nil {
-			_ = toml.Unmarshal(data, &opts)
+			if err := toml.Unmarshal(data, &opts); err != nil {
+				log.Debug("failed to parse config file, using defaults", "path", cfgPath, "error", err)
+			}
 		}
 	}
 

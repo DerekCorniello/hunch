@@ -75,8 +75,11 @@ func findIntegration(shell string) (string, error) {
 	}
 
 	// Last resort: show the expected location relative to the binary.
-	execDir := filepath.Dir(execPath)
-	return filepath.Join(execDir, relative), nil
+	if err == nil {
+		execDir := filepath.Dir(execPath)
+		return filepath.Join(execDir, relative), nil
+	}
+	return "", fmt.Errorf("cannot locate integration files; install hunch or run from source tree")
 }
 
 func shellFileExt(shell string) string {
