@@ -1,5 +1,4 @@
 _HUNCH_BIN=${HUNCH_BIN:-hunch}
-_HUNCH_ACCEPT_KEYS=${HUNCH_ACCEPT_KEYS:-right end}
 
 typeset -ga _HUNCH_PREV
 _HUNCH_PREV=("" "")
@@ -104,9 +103,6 @@ bindkey -M vicmd '^[[F' _hunch_accept_end
 
 bindkey -M viins '^[[C' _hunch_accept_or_forward
 bindkey -M viins '^[[F' _hunch_accept_end
-
-bindkey -M emacs '^[[C' _hunch_accept_or_forward
-bindkey -M emacs '^[[F' _hunch_accept_end
 
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd _hunch_record

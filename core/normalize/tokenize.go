@@ -23,7 +23,7 @@ func tokenize(raw string) []string {
 			inSingle = !inSingle
 		case ch == '"' && !inSingle:
 			inDouble = !inDouble
-		case ch == ' ' || ch == '\t':
+		case ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r':
 			if !inSingle && !inDouble {
 				if current.Len() > 0 {
 					tokens = append(tokens, current.String())

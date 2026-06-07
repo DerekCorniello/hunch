@@ -284,6 +284,57 @@ func TestNormalize(t *testing.T) {
 			want: "terraform plan FLAG",
 		},
 
+		// --- Pipes (|) — pipe and subsequent command collapse to STR ---
+		{
+			name: "pipe collapses to STR",
+			raw:  "git log | grep fix",
+			want: "git log STR",
+		},
+		{
+			name: "multi-pipe",
+			raw:  "npm test | tap-json | grep fail",
+			want: "npm test STR",
+		},
+		{
+			name: "pipe with flags",
+			raw:  "grep -r TODO ./src | xargs rm",
+			want: "grep FLAG STR PATH STR",
+		},
+
+		// --- Redirects — tokens collapse into surrounding STR/PATH ---
+		{
+			name: "redirect stdout",
+			raw:  "echo hello > /dev/null",
+			want: "echo STR PATH",
+		},
+		{
+			name: "redirect stderr",
+			raw:  "cargo build 2>&1",
+			want: "cargo build STR",
+		},
+		{
+			name: "redirect append",
+			raw:  "date >> log.txt",
+			want: "date STR",
+		},
+		{
+			name: "redirect with pipe",
+			raw:  "make 2>&1 | tee build.log",
+			want: "make STR",
+		},
+
+		// --- Heredocs — multi-line input collapses to STR ---
+		{
+			name: "heredoc",
+			raw:  "cat <<EOF\nhello\nEOF",
+			want: "cat STR",
+		},
+		{
+			name: "heredoc with pipe",
+			raw:  "cat <<'PY' | python\nimport os\nPY",
+			want: "cat STR",
+		},
+
 		// --- Edge cases ---
 		{
 			name: "empty string",

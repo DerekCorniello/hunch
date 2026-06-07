@@ -1,153 +1,225 @@
 # hunch
 
-Hunch is a shell companion that learns your command-line behavior and predicts what you’re most likely to do next.
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-It builds a lightweight model from your own command history and uses it to suggest the next command after every execution.
+Hunch is a shell companion that learns your command-line behavior and predicts what you're most likely to do next.
 
-No AI. No cloud. Just your habits turned into fast, local predictions.
+It builds a lightweight statistical model from your own command history — no AI, no cloud, no telemetry. Just fast, local suggestions that get better over time.
 
 ---
 
-## What it does (end goal)
-
-After you run a command like:
+## Quick start
 
 ```bash
-mkdir project
-````
+# Install
+go install github.com/DerekCorniello/hunch@latest
 
-Hunch learns patterns such as:
+# Add shell integration
+eval "$(hunch init zsh)"        # or: bash, fish, powershell
 
-```text
-mkdir DIR → cd DIR
-git clone REPO → cd REPO
-cargo build → cargo run
+# Start using it — predictions appear as ghost text
+git clone https://github.com/user/repo.git
+# → ghost text: cd repo          # press Right or End to accept
 ```
 
-Then it suggests:
+After a few commands, Hunch learns your workflows:
+```
+git clone REPO → cd STR
+cargo build    → cargo run
+ssh STR        → ssh STR
+```
+
+---
+
+## Installation
+
+### From source
 
 ```bash
-cd project
+go install github.com/DerekCorniello/hunch@latest
 ```
 
-or similar likely next steps.
+The binary is built at `~/go/bin/hunch` (or wherever `$GOBIN` points). Make sure it's on your `PATH`.
 
-### Core behavior
+Build with a version string:
 
-* Observes executed shell commands
-* Normalizes them into templates via two-phase processing:
+```bash
+go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(git describe --tags --always --dirty)" github.com/DerekCorniello/hunch@latest
+```
 
-  **1. Unwrap wrappers** — strip `sudo`, `time`, `nohup`, etc., recurse on inner command.
+### Pre-built binaries
 
-  **2. Token-type classification** — split into tokens, classify each by shape:
-  * `-`/`--` prefix → `FLAG`
-  * contains `/`, starts with `.`/`~` → `PATH`
-  * URL or git remote → `REPO`
-  * hex git-hash → `HASH`
-  * numeric → `NUM`
-  * was quoted → `STR`
-  * standalone `--` → everything after becomes `KWARGS`
-  * known parent (`git`, `cargo`, `npm`) — keep subcommand as-is
-  * Then collapse consecutive same-type tokens.
+Pre-built binaries are not yet available. See [Building from source](#from-source) above.
 
-  Examples: `mkdir foo → mkdir PATH`, `git commit -m "init" → git commit FLAG STR`, `cargo build -- --target x86_64 → cargo build KWARGS`
+### Dependencies
 
-* Builds transition weights between normalized command patterns
-* Predicts next likely command
-* Suggests it instantly in the terminal
+Hunch requires no external runtime dependencies. The Go binary is fully static (SQLite is handled by [`modernc.org/sqlite`](https://modernc.org/sqlite), a pure-Go port — no CGO needed).
+
+---
+
+## Shell integration
+
+Run `hunch init <shell>` to get the integration source line:
+
+```bash
+# zsh — ghost text with Right/End accept
+eval "$(hunch init zsh)"
+
+# bash — Tab-accept (replaces completion)
+eval "$(hunch init bash)"
+
+# fish
+hunch init fish | source
+
+# PowerShell (add to your $PROFILE)
+hunch init powershell | Out-String | Invoke-Expression
+```
+
+What each integration provides:
+
+| Shell | UX | Accept | Record hook |
+|-------|----|--------|-------------|
+| zsh | Inline ghost text via `POSTDISPLAY` | Right arrow, End | `precmd` |
+| bash | Tab inserts suggestion | Tab | `PROMPT_COMMAND` |
+| fish | Ghost text via `commandline` manipulation | Right arrow, End | `fish_postexec` |
+| PowerShell | Disables native prediction, shows suggestion on Right/End | Right arrow, End | `Invoke-HunchRecord` via key binding |
+
+All integrations:
+- Auto-start the daemon when sourced
+- Send recorded commands to the daemon asynchronously (non-blocking)
+- Use the `HUNCH_BIN` environment variable to locate the `hunch` binary (default: `hunch`)
+- Silently degrade if the daemon is unavailable
+
+---
+
+## CLI reference
+
+### `hunch init <shell>`
+
+Print the shell integration source line. Supported shells: `zsh`, `bash`, `fish`, `powershell`.
+
+### `hunch daemon <action>`
+
+Manage the background daemon process.
+
+| Action | Description |
+|--------|-------------|
+| `run`  | Run daemon in foreground (useful for debugging) |
+| `start`| Detach and run daemon in background |
+| `stop` | Stop the running daemon |
+| `status`| Check if daemon is running (exit 0 = running) |
+
+### `hunch client <op>`
+
+Send an IPC operation to the running daemon.
+
+| Op | Description |
+|----|-------------|
+| `record` | Record a command transition |
+| `predict` | Get next-command predictions |
+| `reset` | Wipe all learned data |
+| `export` | Export the transition graph as JSON |
+
+#### `hunch client record`
+
+```
+--state <prev1,prev2>   Previous 1–2 commands (comma-separated)
+--next <command>        The command that was run
+--outcome <type>        success or failure
+--cwd <path>            Working directory
+--at <timestamp>        ISO 8601 timestamp
+```
+
+#### `hunch client predict`
+
+```
+--state <prev1,prev2>   Previous 1–2 commands (comma-separated)
+--prefix <text>         Current buffer text for filtering
+--limit <n>             Max suggestions (default: 5)
+```
+
+---
+
+## Configuration
+
+### Environment variables
+
+| Variable | Field | Default |
+|----------|-------|---------|
+| `HUNCH_BIN` | Binary path | `hunch` (from PATH) |
+| `HUNCH_SOCKET` | Unix socket path | `~/.cache/hunch.sock` |
+| `HUNCH_DB_PATH` | SQLite database path | `~/.local/share/hunch/hunch.db` |
+| `HUNCH_ACCEPT_KEYS` | Accept key override | `right,end` |
+| `HUNCH_DAEMON_BIN` | Daemon binary path | (same as `hunch`) |
+| `HUNCH_HALF_LIFE_HOURS` | Decay half-life | `720` (30 days) |
+| `HUNCH_ALPHA` | Additive smoothing | `0.5` |
+| `HUNCH_EXTRA_PARENTS` | Extra parent commands | (none) |
+| `HUNCH_LOG_LEVEL` | Log level | `info` |
+
+### Config file
+
+Hunch looks for `config.toml` in the XDG config directory:
+
+| OS | Config path |
+|----|-------------|
+| Linux | `~/.config/hunch/config.toml` |
+| macOS | `~/Library/Application Support/hunch/config.toml` |
+| Windows | `%AppData%\hunch\hunch\config.toml` |
+
+```toml
+socket = "/run/user/1000/hunch.sock"
+db_path = "/var/lib/hunch/hunch.db"
+half_life_hours = 720
+alpha = 0.5
+accept_keys = ["right", "end"]
+extra_parents = ["mycli", "teamtool"]
+log_level = "info"
+```
+
+Precedence (lowest to highest): built-in defaults → config file → env vars → CLI flags.
 
 ---
 
 ## Architecture
 
-* **core/**
-  Learning + prediction logic (graph, normalization, scoring)
-
-* **daemon/**
-  Background process
-
-  * stores data in SQLite
-  * receives shell events
-  * requests predictions from core
-
-* **cli/**
-  Debug + inspection tool
-
-  * stats
-  * reset
-  * export/import
-  * diagnostics
-  * export normalized graphs as seed data for bootstrapping new users
-
-* **integrations/**
-  Shell hooks (zsh, bash, fish)
-
-  * capture commands
-  * send to daemon
-  * display suggestions
-
----
-
-## UX vision
-
-Eventually Hunch will feel like:
-
-```bash
-❯ mkdir project
-❯ cd project   # (ghost suggestion appears)
+```
+shell → integration (thin adapter) → daemon (background service) → core/ (logic)
+                                          │
+                                     SQLite (WAL)
 ```
 
-or:
+- **core/** — Pure logic. `normalize` (two-phase: unwrap wrappers, classify tokens), `graph` (transition counts), `predict` (additive-smoothed exponential decay scoring). Deterministic and stateless.
+- **daemon/** — Background service. Owns SQLite, receives IPC events, calls core to update and predict. One request per connection over a Unix socket.
+- **cli/** — Admin interface. Routes to init/daemon/client subcommands. Links the full daemon package.
+- **integrations/** — Shell-specific adapters. Minimal shims that shell out to `hunch client`. No learning logic.
 
-```text
-💡 hunch: cd project
-```
-
-The user never explicitly "asks" for suggestions. They just appear as part of normal shell flow.
-
----
-
-## Current state
-
-This project is currently in early scaffolding.
-
-Right now it contains:
-
-* Basic planned directory structure
-* Initial design for:
-
-  * command normalization
-  * transition graph model
-  * daemon + shell integration split
-* No working implementation yet
-* No prediction engine yet
-* No shell hooks yet
-
-In short:
-
-> Architecture and design phase — implementation has not started.
+See [AGENTS.md](AGENTS.md) for the full architecture and design decisions.
 
 ---
 
-## Non-goals (for now)
+## Platform support
 
-* No cloud sync
-* No AI/LLM usage
-* No distributed system
-* No complex shell parsing
-* No huge lookup tables — just token-shape regex + a small list of known parent commands
-* No multi-user modeling
+| Platform | Status |
+|----------|--------|
+| Linux (x86_64, aarch64) | ✅ Full support |
+| macOS (x86_64, arm64) | ✅ Supported |
+| Windows (x86_64) | ✅ Supported (daemon start uses Setsid; named-pipe IPC) |
+| Other Unix (FreeBSD, etc.) | ✅ Supported (flock, XDG paths) |
 
 ---
 
-## Philosophy
+## Non-goals
 
-Hunch is intentionally simple:
+- No AI/LLM — purely statistical learning
+- No cloud sync or telemetry
+- No distributed system
+- No multi-user graph merging
+- No complex shell grammar parsing
+- No daemon-less mode (the daemon is required)
 
-* Learn from repetition
-* Generalize command patterns
-* Predict next actions
-* Stay fast and local
+---
 
-If it feels “obvious” in hindsight, it belongs in Hunch.
+## License
 
+MIT. See [LICENSE](LICENSE).
