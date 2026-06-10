@@ -75,12 +75,12 @@ func cmdDaemonStop() error {
 		return fmt.Errorf("invalid pid: %w", err)
 	}
 
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := stopProcess(pid); err != nil {
 		return fmt.Errorf("signal daemon: %w", err)
 	}
 
 	if err := waitForSocketRemoval(opts.Socket, 5*time.Second); err != nil {
-		syscall.Kill(pid, syscall.SIGKILL)
+		_ = forceStopProcess(pid)
 		if err2 := waitForSocketRemoval(opts.Socket, 2*time.Second); err2 != nil {
 			return fmt.Errorf("daemon did not stop: %w", err)
 		}
