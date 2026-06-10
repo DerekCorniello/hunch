@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DerekCorniello/hunch/daemon"
+	"golang.org/x/sys/windows"
 )
 
 func cmdDaemonStart() error {
@@ -40,7 +41,7 @@ func cmdDaemonStart() error {
 	}
 
 	cmd := exec.Command(selfPath, "daemon", "run")
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Stdin = nil

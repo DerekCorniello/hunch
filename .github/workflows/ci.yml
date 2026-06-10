@@ -44,6 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y shellcheck zsh fish
+
       - name: shellcheck (bash)
         run: shellcheck integrations/bash/hunch.bash
 

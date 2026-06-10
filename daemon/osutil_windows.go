@@ -8,6 +8,8 @@ import (
 	"os"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -20,7 +22,6 @@ const (
 	lockfileFailImmediately = 0x00000001
 )
 
-// windowsLocker implements Locker via LockFileEx.
 type windowsLocker struct {
 	f *os.File
 }
@@ -29,7 +30,7 @@ func (l *windowsLocker) Lock() error {
 	var bytesToLockLow uint32 = 1
 	var bytesToLockHigh uint32 = 0
 
-	_OVERLAPPED := [8]byte{} // OVERLAPPED structure (simplified for advisory lock)
+	_OVERLAPPED := [8]byte{}
 
 	ret, _, err := procLockFileEx.Call(
 		uintptr(l.f.Fd()),
@@ -40,7 +41,7 @@ func (l *windowsLocker) Lock() error {
 		uintptr(unsafe.Pointer(&_OVERLAPPED[0])),
 	)
 	if ret == 0 {
-		if errors.Is(err, syscall.ERROR_LOCK_VIOLATION) || errors.Is(err, syscall.ERROR_INVALID_PARAMETER) {
+		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 			return ErrLocked
 		}
 		return fmt.Errorf("LockFileEx: %w", err)
@@ -54,14 +55,13 @@ func (l *windowsLocker) Unlock() error {
 
 	_OVERLAPPED := [8]byte{}
 
-	ret, _, err := syscall.UnlockFileEx(
-		uintptr(l.f.Fd()),
+	if err := windows.UnlockFileEx(
+		windows.Handle(l.f.Fd()),
 		0,
-		uintptr(bytesToUnlockLow),
-		uintptr(bytesToUnlockHigh),
-		uintptr(unsafe.Pointer(&_OVERLAPPED[0])),
-	)
-	if ret == 0 {
+		bytesToUnlockLow,
+		bytesToUnlockHigh,
+		&windows.Overlapped{},
+	); err != nil {
 		return fmt.Errorf("UnlockFileEx: %w", err)
 	}
 	return nil
@@ -72,7 +72,6 @@ func (l *windowsLocker) Close() error {
 	return l.f.Close()
 }
 
-// OpenLock opens or creates the lock file at path and returns a Locker.
 func OpenLock(path string) (Locker, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
@@ -81,27 +80,23 @@ func OpenLock(path string) (Locker, error) {
 	return &windowsLocker{f: f}, nil
 }
 
-// processExists checks whether a process with the given PID is alive.
 func processExists(pid int) (bool, error) {
-	handle, err := syscall.OpenProcess(syscall.PROCESS_QUERY_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION, false, uint32(pid))
 	if err != nil {
-		if errors.Is(err, syscall.ERROR_INVALID_PARAMETER) {
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 			return false, nil
 		}
 		return false, err
 	}
-	defer syscall.CloseHandle(handle)
+	defer windows.CloseHandle(handle)
 
 	var exitCode uint32
-	err = syscall.GetExitCodeProcess(handle, &exitCode)
-	if err != nil {
+	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
 		return false, err
 	}
-	// exitCode == STILL_ACTIVE (259) means process is still running
-	return exitCode == 259, nil
+	return exitCode == 259, nil // STILL_ACTIVE
 }
 
-// CacheDir returns the Windows cache directory.
 func CacheDir() (string, error) {
 	d := os.Getenv("LocalAppData")
 	if d == "" {
@@ -113,7 +108,6 @@ func CacheDir() (string, error) {
 	return d, nil
 }
 
-// DataDir returns the Windows data directory.
 func DataDir() (string, error) {
 	d := os.Getenv("LocalAppData")
 	if d == "" {
@@ -125,7 +119,6 @@ func DataDir() (string, error) {
 	return d, nil
 }
 
-// ConfigDir returns the Windows config directory.
 func ConfigDir() (string, error) {
 	d := os.Getenv("AppData")
 	if d == "" {
