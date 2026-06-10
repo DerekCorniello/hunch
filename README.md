@@ -15,13 +15,16 @@ It builds a lightweight statistical model from your own command history — no A
 # Install
 go install github.com/DerekCorniello/hunch@latest
 
-# Add shell integration
-eval "$(hunch init zsh)"        # or: bash, fish, powershell
+# Get the source line for your shell
+hunch init zsh
+# Prints: source /home/user/.local/share/hunch/integrations/zsh/hunch.zsh
+
+# Add it to your rc file, restart your shell, and you're done.
+# Hunch learns from every command. Predictions appear as you type.
 
 # Start using it — predictions appear as ghost text
 git clone https://github.com/user/repo.git
-# → ghost text: cd repo          # press Right or End to accept
-```
+# ghost text: cd repo          press Right or End to accept
 
 After a few commands, Hunch learns your workflows:
 ```
@@ -45,7 +48,13 @@ The binary is built at `~/go/bin/hunch` (or wherever `$GOBIN` points). Make sure
 Build with a version string:
 
 ```bash
-go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(git describe --tags --always --dirty)" github.com/DerekCorniello/hunch@latest
+go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=1.0.0" github.com/DerekCorniello/hunch@latest
+```
+
+Or from a local clone:
+
+```bash
+go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(git describe --tags --always)" .
 ```
 
 ### Pre-built binaries
@@ -60,20 +69,23 @@ Hunch requires no external runtime dependencies. The Go binary is fully static (
 
 ## Shell integration
 
-Run `hunch init <shell>` to get the integration source line:
+Run `hunch init <shell>` to print the source line to add to your rc file:
 
 ```bash
 # zsh — ghost text with Right/End accept
-eval "$(hunch init zsh)"
+hunch init zsh
+# Prints: source /path/to/hunch/integrations/zsh/hunch.zsh
 
-# bash — Tab-accept (replaces completion)
-eval "$(hunch init bash)"
+# Add the printed line to ~/.zshrc, then restart your shell.
+
+# bash — Tab-accept
+hunch init bash
 
 # fish
-hunch init fish | source
+hunch init fish
 
 # PowerShell (add to your $PROFILE)
-hunch init powershell | Out-String | Invoke-Expression
+hunch init powershell
 ```
 
 What each integration provides:
@@ -99,6 +111,23 @@ All integrations:
 
 Print the shell integration source line. Supported shells: `zsh`, `bash`, `fish`, `powershell`.
 
+When run interactively, `hunch init` detects your shell history and offers to import
+it to jump-start predictions. In non-interactive contexts (piped, scripted), the
+prompt is skipped.
+
+### `hunch import-history <shell>`
+
+Import shell command history as training data for predictions. Supports `zsh`, `bash`,
+`fish`, and `powershell`.
+
+```
+--path <file>      History file path (defaults to the shell's standard location)
+--threads <N>      Number of normalize worker threads (default: CPU count)
+```
+
+Processes history by parsing commands, normalizing them into templates, building
+state transitions, and importing into the daemon as a seed.
+
 ### `hunch daemon <action>`
 
 Manage the background daemon process.
@@ -120,6 +149,10 @@ Send an IPC operation to the running daemon.
 | `predict` | Get next-command predictions |
 | `reset` | Wipe all learned data |
 | `export` | Export the transition graph as JSON |
+| `normalize`| Normalize a raw command to its template |
+| `stats` | Show daemon stats (size, half-life, alpha) |
+| `config` | Show active daemon configuration |
+| `import` | Import a seed JSON file |
 
 #### `hunch client record`
 
@@ -136,7 +169,7 @@ Send an IPC operation to the running daemon.
 ```
 --state <prev1,prev2>   Previous 1–2 commands (comma-separated)
 --prefix <text>         Current buffer text for filtering
---limit <n>             Max suggestions (default: 5)
+--limit <n>             Max suggestions (default: 3)
 ```
 
 ---
@@ -149,7 +182,7 @@ Send an IPC operation to the running daemon.
 |----------|-------|---------|
 | `HUNCH_BIN` | Binary path | `hunch` (from PATH) |
 | `HUNCH_SOCKET` | Unix socket path | `~/.cache/hunch.sock` |
-| `HUNCH_DB_PATH` | SQLite database path | `~/.local/share/hunch/hunch.db` |
+| `HUNCH_DB_PATH` | SQLite database path | `~/.local/share/hunch.db` |
 | `HUNCH_ACCEPT_KEYS` | Accept key override | `right,end` |
 | `HUNCH_DAEMON_BIN` | Daemon binary path | (same as `hunch`) |
 | `HUNCH_HALF_LIFE_HOURS` | Decay half-life | `720` (30 days) |
@@ -164,8 +197,8 @@ Hunch looks for `config.toml` in the XDG config directory:
 | OS | Config path |
 |----|-------------|
 | Linux | `~/.config/hunch/config.toml` |
-| macOS | `~/Library/Application Support/hunch/config.toml` |
-| Windows | `%AppData%\hunch\hunch\config.toml` |
+| macOS | `~/.config/hunch/config.toml` |
+| Windows | `%AppData%\hunch\config.toml` |
 
 ```toml
 socket = "/run/user/1000/hunch.sock"
@@ -204,8 +237,11 @@ See [AGENTS.md](AGENTS.md) for the full architecture and design decisions.
 |----------|--------|
 | Linux (x86_64, aarch64) | ✅ Full support |
 | macOS (x86_64, arm64) | ✅ Supported |
-| Windows (x86_64) | ✅ Supported (daemon start uses Setsid; named-pipe IPC) |
+| Windows (x86_64) | ✅ Supported (Unix domain sockets) |
 | Other Unix (FreeBSD, etc.) | ✅ Supported (flock, XDG paths) |
+
+On Windows, you may need to exclude `%LocalAppData%\hunch\` from Windows Defender
+real-time scanning to avoid lock contention with the SQLite database.
 
 ---
 

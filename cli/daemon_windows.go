@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -18,6 +19,10 @@ func cmdDaemonStart() error {
 		return fmt.Errorf("could not determine socket path; set HUNCH_SOCKET")
 	}
 
+	if err := EnsureIntegrations(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not install integrations: %v\n", err)
+	}
+
 	selfPath := opts.DaemonBin
 	if selfPath == "" {
 		var err error
@@ -27,10 +32,17 @@ func cmdDaemonStart() error {
 		}
 	}
 
+	logPath := filepath.Join(filepath.Dir(opts.DBPath), "hunch.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not open log file %s: %v\n", logPath, err)
+		logFile = nil
+	}
+
 	cmd := exec.Command(selfPath, "daemon", "run")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	cmd.Stdin = nil
 
 	if err := cmd.Start(); err != nil {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 	"unsafe"
 )
@@ -102,13 +101,7 @@ func processExists(pid int) (bool, error) {
 	return exitCode == 259, nil
 }
 
-// SocketURL returns the socket path for Windows.
-// Go 1.24+ supports Unix domain sockets on Windows via file paths.
-func SocketURL(path string) string {
-	return path
-}
-
-// CacheDir returns the Windows cache directory for hunch.
+// CacheDir returns the Windows cache directory.
 func CacheDir() (string, error) {
 	d := os.Getenv("LocalAppData")
 	if d == "" {
@@ -117,10 +110,10 @@ func CacheDir() (string, error) {
 			return "", errors.New("neither LocalAppData nor TEMP is set")
 		}
 	}
-	return filepath.Join(d, "hunch"), nil
+	return d, nil
 }
 
-// DataDir returns the Windows data directory for hunch.
+// DataDir returns the Windows data directory.
 func DataDir() (string, error) {
 	d := os.Getenv("LocalAppData")
 	if d == "" {
@@ -129,14 +122,14 @@ func DataDir() (string, error) {
 			return "", errors.New("neither LocalAppData nor TEMP is set")
 		}
 	}
-	return filepath.Join(d, "hunch"), nil
+	return d, nil
 }
 
-// ConfigDir returns the Windows config directory for hunch.
+// ConfigDir returns the Windows config directory.
 func ConfigDir() (string, error) {
 	d := os.Getenv("AppData")
 	if d == "" {
 		return "", errors.New("AppData is not set")
 	}
-	return filepath.Join(d, "hunch"), nil
+	return d, nil
 }

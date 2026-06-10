@@ -1,6 +1,10 @@
 package daemon
 
-import "errors"
+import (
+	"errors"
+	"net"
+	"time"
+)
 
 // Locker abstracts advisory file locking.
 // On Unix this is flock(2); on Windows it is LockFileEx.
@@ -20,4 +24,11 @@ var ErrLocked = errors.New("lock already held")
 // ProcessExists reports whether a process with the given PID is alive.
 func ProcessExists(pid int) (bool, error) {
 	return processExists(pid)
+}
+
+// Dial connects to the daemon's IPC socket with a timeout.
+// Uses Unix domain sockets, which are supported on all platforms
+// (Linux, macOS, Windows) since Go 1.20.
+func Dial(socket string, timeout time.Duration) (net.Conn, error) {
+	return net.DialTimeout("unix", socket, timeout)
 }

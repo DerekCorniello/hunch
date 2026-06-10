@@ -2,9 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"io/fs"
 )
 
 var Version = "dev"
+
+// IntegrationFS is the embedded filesystem containing shell integration
+// scripts. Set by main before Run is called.
+var IntegrationFS fs.FS
 
 func Run(args []string) error {
 	if len(args) == 0 {
@@ -23,6 +28,8 @@ func Run(args []string) error {
 		return cmdDaemon(args[1:])
 	case "client":
 		return cmdClient(args[1:])
+	case "import-history":
+		return cmdImportHistory(args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s\n\n%s", args[0], usageText())
 	}
@@ -37,9 +44,10 @@ func usageText() string {
 	return `Usage: hunch <command> [options]
 
 Commands:
-  init <shell>       Print the source line for shell integration
-  daemon <action>    Manage the daemon (run|start|stop|status)
-  client <op>        Send an IPC operation (record|predict|reset|export|normalize|stats|config|import)
+  init <shell>         Print the source line for shell integration
+  daemon <action>      Manage the daemon (run|start|stop|status)
+  client <op>          Send an IPC operation (record|predict|reset|export|normalize|stats|config|import)
+  import-history <sh>  Import shell history to jump-start predictions
 
 Flags:
   --version, -v      Print version

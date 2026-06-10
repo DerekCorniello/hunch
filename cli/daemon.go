@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -129,7 +128,7 @@ func cmdDaemonStatus() error {
 func waitForSocket(path string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("unix", path, 50*time.Millisecond)
+		conn, err := daemon.Dial(path, 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
 			return nil

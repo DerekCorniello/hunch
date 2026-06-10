@@ -1,3 +1,14 @@
+# Hunch requires PowerShell 7.4+
+if ($PSVersionTable.PSVersion.Major -lt 7 -or ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -lt 4)) {
+	Write-Warning "Hunch requires PowerShell 7.4+. Current: $($PSVersionTable.PSVersion). Integration will not load."
+	return
+}
+# PSReadLine 2.3+ is required for inline predictions.
+if (-not (Get-Module -ListAvailable PSReadLine | Where-Object { $_.Version.Major -ge 2 -and $_.Version.Minor -ge 3 })) {
+	Write-Warning "Hunch requires PSReadLine 2.3+. Install: Install-Module PSReadLine -Force -Scope CurrentUser"
+	return
+}
+
 $HunchBin = if ($env:HUNCH_BIN) { $env:HUNCH_BIN } else { "hunch" }
 # Accept keys: right, end (set $env:_HUNCH_ACCEPT_KEYS env var to override)
 if (-not $env:_HUNCH_ACCEPT_KEYS) { $env:_HUNCH_ACCEPT_KEYS = "right,end" }

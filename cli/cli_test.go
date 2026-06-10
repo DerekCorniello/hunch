@@ -76,7 +76,7 @@ func TestHelp(t *testing.T) {
 }
 
 func TestInitPrintsSourceLine(t *testing.T) {
-	for _, shell := range []string{"zsh", "bash", "fish", "pwsh"} {
+	for _, shell := range []string{"zsh", "bash", "fish", "powershell"} {
 		t.Run(shell, func(t *testing.T) {
 			err := Run([]string{"init", shell})
 			if err != nil {

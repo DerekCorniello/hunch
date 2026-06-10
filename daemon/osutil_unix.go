@@ -40,11 +40,6 @@ func OpenLock(path string) (Locker, error) {
 	return &unixLocker{f: f}, nil
 }
 
-// SocketURL returns the URL for a Unix domain socket at the given path.
-func SocketURL(path string) string {
-	return "unix://" + path
-}
-
 // processExists checks whether a process with the given PID is alive.
 func processExists(pid int) (bool, error) {
 	err := syscall.Kill(pid, syscall.Signal(0))

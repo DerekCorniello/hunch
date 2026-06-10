@@ -137,9 +137,6 @@ func (d *daemon) start(ctx context.Context) error {
 	go d.flushLoop(ctx)
 
 	// Start IPC listener.
-	if len(d.sockPath) >= 104 {
-		return fmt.Errorf("socket path too long: %s (max ~104 bytes on Unix)", d.sockPath)
-	}
 	listener, err := net.Listen("unix", d.sockPath)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)

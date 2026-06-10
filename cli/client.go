@@ -45,7 +45,7 @@ func dialDaemon() (net.Conn, string, error) {
 	if opts.Socket == "" {
 		return nil, "", fmt.Errorf("could not determine socket path; set HUNCH_SOCKET")
 	}
-	conn, err := net.DialTimeout("unix", opts.Socket, 2*time.Second)
+	conn, err := daemon.Dial(opts.Socket, 2*time.Second)
 	if err != nil {
 		return nil, "", fmt.Errorf("connect to daemon at %s: %w (is the daemon running?)", opts.Socket, err)
 	}
