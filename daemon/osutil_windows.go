@@ -53,8 +53,6 @@ func (l *windowsLocker) Unlock() error {
 	var bytesToUnlockLow uint32 = 1
 	var bytesToUnlockHigh uint32 = 0
 
-	_OVERLAPPED := [8]byte{}
-
 	if err := windows.UnlockFileEx(
 		windows.Handle(l.f.Fd()),
 		0,
