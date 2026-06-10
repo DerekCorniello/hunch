@@ -40,6 +40,9 @@ func scoreTransitions(transitions []graph.Transition, halfLife time.Duration, al
 
 	n := len(transitions)
 	denom := total + alpha*float64(n)
+	if denom <= 0 {
+		return nil
+	}
 
 	result := make([]scoredTransition, n)
 	for i, t := range transitions {

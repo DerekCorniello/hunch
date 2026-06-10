@@ -120,7 +120,7 @@ var (
 	flagRe = regexp.MustCompile(`^-{1,2}`)
 	repoRe = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9+.-]*://|www\.)|@.*:|\.git$`)
 	hashRe = regexp.MustCompile(`^[0-9a-fA-F]{6,40}$`)
-	numRe  = regexp.MustCompile(`^-?\d+\.?\d*$`)
+	numRe  = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
 )
 
 // defaultParentSet is the precomputed lookup for DefaultParents, avoiding
@@ -141,8 +141,11 @@ func classifyTokens(tokens []string, parents []string) []string {
 
 	// Reuse the precomputed set when the caller passed DefaultParents
 	// (the common case), avoiding a per-call map allocation.
-	var parentSet map[string]bool
-	if len(parents) == len(DefaultParents) && &parents[0] == &DefaultParents[0] {
+	// We compare by pointer identity: the Normalize function assigns
+	// DefaultParents when parents is nil, so this catches the common
+	// path without allocation.
+	var parentSet map[string]struct{}
+	if len(parents) == len(DefaultParents) && len(parents) > 0 && &parents[0] == &DefaultParents[0] {
 		parentSet = defaultParentSet
 	} else {
 		parentSet = makeSet(parents)
@@ -183,7 +186,7 @@ const (
 // classifyToken determines the classification for a single token.
 // firstTok is the command's leading token, supplied separately so
 // this function does not need the full tokens slice.
-func classifyToken(tok string, idx int, firstTok string, parents map[string]bool) classification {
+func classifyToken(tok string, idx int, firstTok string, parents map[string]struct{}) classification {
 	if tok == "--" {
 		return classPlain
 	}
@@ -196,8 +199,10 @@ func classifyToken(tok string, idx int, firstTok string, parents map[string]bool
 		return classPlain
 	}
 
-	if idx == 1 && parents[firstTok] {
-		return classPlain
+	if idx == 1 {
+		if _, ok := parents[firstTok]; ok {
+			return classPlain
+		}
 	}
 
 	// URL or git remote — check before path so URLs with slashes
@@ -275,10 +280,10 @@ func collapseAppend(result []string, token string) []string {
 	return append(result, token)
 }
 
-func makeSet(items []string) map[string]bool {
-	s := make(map[string]bool, len(items))
+func makeSet(items []string) map[string]struct{} {
+	s := make(map[string]struct{}, len(items))
 	for _, item := range items {
-		s[item] = true
+		s[item] = struct{}{}
 	}
 	return s
 }

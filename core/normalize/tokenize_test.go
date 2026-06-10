@@ -86,6 +86,21 @@ func TestTokenize(t *testing.T) {
 			input: `git push git@github.com:user/repo.git main`,
 			want:  []string{"git", "push", "git@github.com:user/repo.git", "main"},
 		},
+		{
+			name:  "backslash escape space outside quotes",
+			input: `echo foo\ bar`,
+			want:  []string{"echo", "foo bar"},
+		},
+		{
+			name:  "backslash escape inside single quotes is literal",
+			input: `echo 'foo\ bar'`,
+			want:  []string{"echo", "foo\\ bar"},
+		},
+		{
+			name:  "backslash at end of input outside quotes",
+			input: `echo foo\`,
+			want:  []string{"echo", "foo"},
+		},
 	}
 
 	for _, tt := range tests {

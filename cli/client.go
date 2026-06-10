@@ -36,7 +36,7 @@ func cmdClient(args []string) error {
 	case "import":
 		return cmdClientImport(args[1:])
 	default:
-		return fmt.Errorf("unknown client op: %q\n\nops: record, predict, reset, export, normalize, stats", args[0])
+		return fmt.Errorf("unknown client op: %q\n\nops: record, predict, reset, export, normalize, stats, config, import", args[0])
 	}
 }
 

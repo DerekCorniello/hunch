@@ -27,11 +27,12 @@ const (
 )
 
 type daemon struct {
-	opts Options
-	g    atomic.Pointer[graph.Graph]
-	pred atomic.Pointer[predict.Predictor]
-	st   *store
-	log  *slog.Logger
+	opts     Options
+	g        atomic.Pointer[graph.Graph]
+	pred     atomic.Pointer[predict.Predictor]
+	st       *store
+	log      *slog.Logger
+	parents  []string // cached result of MergeParents
 
 	lock     Locker
 	listener net.Listener
@@ -53,6 +54,7 @@ func Run(ctx context.Context, opts Options) error {
 		opts:    opts,
 		log:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel(opts.LogLevel)})),
 		flushCh: make(chan struct{}, 1),
+		parents: normalize.MergeParents(opts.ExtraParents),
 	}
 	d.g.Store(graph.New(2))
 
@@ -255,14 +257,12 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 		at = time.Now()
 	}
 
-	parents := normalize.MergeParents(d.opts.ExtraParents)
-
 	// Normalize state and next before recording.
 	normalizedState := make([]string, len(req.State))
 	for i, raw := range req.State {
-		normalizedState[i] = normalize.Normalize(raw, parents)
+		normalizedState[i] = normalize.Normalize(raw, d.parents)
 	}
-	normalizedNext := normalize.Normalize(req.Next, parents)
+	normalizedNext := normalize.Normalize(req.Next, d.parents)
 
 	d.g.Load().Record(normalizedState, normalizedNext, at)
 	d.dirty.Add(1)
@@ -348,7 +348,7 @@ func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
 	if raw == "" && len(req.State) > 0 {
 		raw = req.State[len(req.State)-1]
 	}
-	template := normalize.Normalize(raw, normalize.MergeParents(d.opts.ExtraParents))
+	template := normalize.Normalize(raw, d.parents)
 	resp := ipc.NormalizeResponse{
 		Raw:      raw,
 		Template: template,
@@ -421,7 +421,16 @@ func (d *daemon) flush() {
 		d.log.Error("flush failed", "error", err)
 		return
 	}
-	d.dirty.Store(0)
+
+	// Atomically clear dirty. Any records that arrived during the save
+	// (incrementing dirty) are in the graph but not yet persisted.
+	// If dirty was > 0 at swap time, schedule an immediate re-flush.
+	if d.dirty.Swap(0) > 0 {
+		select {
+		case d.flushCh <- struct{}{}:
+		default:
+		}
+	}
 	d.log.Debug("flushed", "count", len(all))
 }
 
@@ -450,9 +459,6 @@ func filterByPrefix(suggestions []types.Suggestion, prefix string) []types.Sugge
 		if strings.HasPrefix(s.Template, prefix) {
 			filtered = append(filtered, s)
 		}
-	}
-	if filtered == nil {
-		return []types.Suggestion{}
 	}
 	return filtered
 }

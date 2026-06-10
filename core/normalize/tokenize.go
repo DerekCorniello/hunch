@@ -18,7 +18,7 @@ func tokenize(raw string) []string {
 		case escaped:
 			current.WriteByte(ch)
 			escaped = false
-		case ch == '\\' && inDouble:
+		case ch == '\\' && !inSingle:
 			escaped = true
 		case ch == '\'' && !inDouble:
 			inSingle = !inSingle

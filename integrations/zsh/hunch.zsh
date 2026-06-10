@@ -1,5 +1,4 @@
 _HUNCH_BIN=${HUNCH_BIN:-hunch}
-# Accept keys: right, end (set _HUNCH_ACCEPT_KEYS env var to override)
 : ${_HUNCH_ACCEPT_KEYS:=right end}
 
 typeset -ga _HUNCH_PREV
@@ -72,13 +71,19 @@ _hunch_accept_end() {
 	fi
 }
 
+# Save references to existing self-insert and backward-delete-char
+# widgets so we can chain through them without breaking other
+# frameworks (zsh-autosuggestions, zsh-syntax-highlighting, etc.).
+zle -A self-insert _hunch_orig_self_insert 2>/dev/null || true
+zle -A backward-delete-char _hunch_orig_backward_delete 2>/dev/null || true
+
 _hunch_self_insert() {
-	zle .self-insert
+	zle _hunch_orig_self_insert
 	_hunch_predict
 }
 
 _hunch_backward_delete() {
-	zle .backward-delete-char
+	zle _hunch_orig_backward_delete
 	_HUNCH_LAST_BUFFER=""
 	_hunch_predict
 }
