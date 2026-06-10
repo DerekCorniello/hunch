@@ -98,6 +98,7 @@ extra_parents = ["custom-tool"]
 	}
 
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("AppData", dir)
 
 	opts := LoadConfig()
 
@@ -122,6 +123,7 @@ func TestLoadConfigEnvOverridesTOML(t *testing.T) {
 	}
 
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("AppData", dir)
 	t.Setenv("HUNCH_HALF_LIFE_HOURS", "500")
 
 	opts := LoadConfig()
@@ -144,6 +146,7 @@ func TestLoadConfigMalformedTOML(t *testing.T) {
 	}
 
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("AppData", dir)
 
 	opts := LoadConfig()
 

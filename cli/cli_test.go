@@ -31,7 +31,17 @@ func startTestDaemon(t *testing.T) (string, func()) {
 		}
 	}()
 
-	// Wait for socket to appear.
+	t.Cleanup(func() {
+		cancel()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(opts.Socket); os.IsNotExist(err) {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
+
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(opts.Socket); err == nil {

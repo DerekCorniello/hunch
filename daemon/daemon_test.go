@@ -16,7 +16,6 @@ import (
 func startDaemon(t *testing.T, opts Options) (context.Context, context.CancelFunc, string) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 
 	opts.Socket = testSockPath(t)
 	opts.DBPath = filepath.Join(t.TempDir(), "hunch.db")
@@ -28,6 +27,18 @@ func startDaemon(t *testing.T, opts Options) (context.Context, context.CancelFun
 	}()
 
 	waitForSocket(t, opts.Socket, 5*time.Second)
+
+	t.Cleanup(func() {
+		cancel()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(opts.Socket); os.IsNotExist(err) {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
+
 	return ctx, cancel, opts.Socket
 }
 
