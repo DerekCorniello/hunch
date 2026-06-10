@@ -21,17 +21,18 @@ vet:
 	$(GO) vet ./...
 
 lint:
-	which staticcheck 2>/dev/null && staticcheck ./... || true
+	$(GO) vet ./...
+	which staticcheck 2>/dev/null && staticcheck ./...
 
 lint-shell:
 	@echo "--- bash ---"
-	shellcheck integrations/bash/hunch.bash 2>&1 || true
+	shellcheck integrations/bash/hunch.bash
 	@echo "--- zsh ---"
-	zsh -n integrations/zsh/hunch.zsh 2>&1 || true
+	zsh -n integrations/zsh/hunch.zsh
 	@echo "--- fish ---"
-	fish -n integrations/fish/hunch.fish 2>&1 || true
+	fish -n integrations/fish/hunch.fish
 	@echo "--- powershell ---"
-	pwsh -NoLogo -NoProfile -Command "Get-Command -Syntax . 'integrations/powershell/hunch.ps1'" 2>&1 || true
+	pwsh -NoLogo -NoProfile -Command "Get-Command -Syntax . 'integrations/powershell/hunch.ps1'"
 
 check: test test-race vet lint lint-shell
 	@echo "all checks passed"

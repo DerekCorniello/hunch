@@ -129,7 +129,7 @@ var defaultParentSet = makeSet(DefaultParents)
 
 // classifiedPool reduces allocations on repeated classifyToken calls.
 var classifiedPool = sync.Pool{
-	New: func() interface{} { return make([]classification, 0, 32) },
+	New: func() any { return make([]classification, 0, 32) },
 }
 
 // classifyTokens runs Phase 2 token-type classification and collapses

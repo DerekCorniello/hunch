@@ -310,6 +310,7 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 
 func (d *daemon) handleReset(conn net.Conn) {
 	d.flushMu.Lock()
+	d.flushDB()
 	newG := graph.New(2)
 	d.g.Store(newG)
 	d.pred.Store(predict.New(newG, d.opts.HalfLife(), d.opts.Alpha))
@@ -320,6 +321,18 @@ func (d *daemon) handleReset(conn net.Conn) {
 	d.flushMu.Unlock()
 
 	writeOK(conn)
+}
+
+// flushDB persists the current graph to the database.
+// flushMu must be held by the caller.
+func (d *daemon) flushDB() {
+	all := d.g.Load().All()
+	if len(all) == 0 {
+		return
+	}
+	if err := d.st.save(all); err != nil {
+		d.log.Error("flush failed", "error", err)
+	}
 }
 
 func (d *daemon) handleExport(conn net.Conn) {
@@ -412,15 +425,7 @@ func (d *daemon) flush() {
 	d.flushMu.Lock()
 	defer d.flushMu.Unlock()
 
-	all := d.g.Load().All()
-	if len(all) == 0 {
-		return
-	}
-
-	if err := d.st.save(all); err != nil {
-		d.log.Error("flush failed", "error", err)
-		return
-	}
+	d.flushDB()
 
 	// Atomically clear dirty. Any records that arrived during the save
 	// (incrementing dirty) are in the graph but not yet persisted.
@@ -431,7 +436,7 @@ func (d *daemon) flush() {
 		default:
 		}
 	}
-	d.log.Debug("flushed", "count", len(all))
+	d.log.Debug("flushed")
 }
 
 func (d *daemon) importSeed(path string) error {
