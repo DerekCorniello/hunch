@@ -152,7 +152,10 @@ func normalizeConcurrent(rawCmds []string, threads int) ([]string, error) {
 	normalized := make([]string, len(rawCmds))
 	parents := normalize.DefaultParents
 
-	type job struct{ idx int; raw string }
+	type job struct {
+		idx int
+		raw string
+	}
 	jobs := make(chan job, len(rawCmds))
 
 	var wg sync.WaitGroup

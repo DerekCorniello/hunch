@@ -16,7 +16,7 @@ var (
 )
 
 const (
-	lockfileExclusiveLock = 0x00000002
+	lockfileExclusiveLock   = 0x00000002
 	lockfileFailImmediately = 0x00000001
 )
 
@@ -29,7 +29,7 @@ func (l *windowsLocker) Lock() error {
 	var bytesToLockLow uint32 = 1
 	var bytesToLockHigh uint32 = 0
 
-_OVERLAPPED := [8]byte{} // OVERLAPPED structure (simplified for advisory lock)
+	_OVERLAPPED := [8]byte{} // OVERLAPPED structure (simplified for advisory lock)
 
 	ret, _, err := procLockFileEx.Call(
 		uintptr(l.f.Fd()),
@@ -52,7 +52,7 @@ func (l *windowsLocker) Unlock() error {
 	var bytesToUnlockLow uint32 = 1
 	var bytesToUnlockHigh uint32 = 0
 
-_OVERLAPPED := [8]byte{}
+	_OVERLAPPED := [8]byte{}
 
 	ret, _, err := syscall.UnlockFileEx(
 		uintptr(l.f.Fd()),

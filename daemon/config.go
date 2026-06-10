@@ -16,15 +16,15 @@ import (
 // Zero values indicate "use the default"; call LoadConfig to populate
 // from config file + environment with proper defaults applied.
 type Options struct {
-	Socket        string        `toml:"socket"`
-	DBPath        string        `toml:"db_path"`
-	AcceptKeys    []string      `toml:"accept_keys"`
-	DaemonBin     string        `toml:"daemon_bin"`
-	HalfLifeHours int           `toml:"half_life_hours"`
-	Alpha         float64       `toml:"alpha"`
-	ExtraParents  []string      `toml:"extra_parents"`
-	LogLevel      string        `toml:"log_level"`
-	SeedPath      string        `toml:"-"` // CLI-only, not in config file
+	Socket        string   `toml:"socket"`
+	DBPath        string   `toml:"db_path"`
+	AcceptKeys    []string `toml:"accept_keys"`
+	DaemonBin     string   `toml:"daemon_bin"`
+	HalfLifeHours int      `toml:"half_life_hours"`
+	Alpha         float64  `toml:"alpha"`
+	ExtraParents  []string `toml:"extra_parents"`
+	LogLevel      string   `toml:"log_level"`
+	SeedPath      string   `toml:"-"` // CLI-only, not in config file
 }
 
 // defaults returns an Options with built-in defaults applied.
