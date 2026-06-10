@@ -48,7 +48,7 @@ func offerHistoryImport(shell string) {
 	}
 
 	historyPath, cmdCount, err := resolveHistoryPath(shell, "")
-	if err != nil || cmdCount == 0 {
+	if err != nil || cmdCount <= 0 || historyPath == "" {
 		return
 	}
 

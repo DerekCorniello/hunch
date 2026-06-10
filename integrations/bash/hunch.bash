@@ -1,6 +1,8 @@
 _HUNCH_BIN=${HUNCH_BIN:-hunch}
 # Accept key: tab (set _HUNCH_ACCEPT_KEYS env var to override)
-: ${_HUNCH_ACCEPT_KEYS:=tab}
+if [[ -z "${_HUNCH_ACCEPT_KEYS:-}" ]]; then
+	_HUNCH_ACCEPT_KEYS=tab
+fi
 
 _HUNCH_PREV1=""
 _HUNCH_PREV2=""
@@ -15,7 +17,8 @@ _hunch_daemon_ensure
 
 _hunch_record() {
 	local exit_code=$?
-	local cmd=$(history 1 | sed 's/^ *[0-9]* *//')
+	local cmd
+	cmd=$(history 1 | sed 's/^ *[0-9]* *//')
 	[[ -z "$cmd" ]] && return
 
 	local outcome="success"

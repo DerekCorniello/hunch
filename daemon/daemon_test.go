@@ -18,7 +18,7 @@ func startDaemon(t *testing.T, opts Options) (context.Context, context.CancelFun
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	opts.Socket = filepath.Join(t.TempDir(), "hunch.sock")
+	opts.Socket = testSockPath(t)
 	opts.DBPath = filepath.Join(t.TempDir(), "hunch.db")
 
 	go func() {
@@ -29,6 +29,22 @@ func startDaemon(t *testing.T, opts Options) (context.Context, context.CancelFun
 
 	waitForSocket(t, opts.Socket, 5*time.Second)
 	return ctx, cancel, opts.Socket
+}
+
+// testSockPath returns a socket path short enough for Unix domain sockets
+// (< ~104 bytes). On macOS CI the standard temp dir can exceed this limit.
+func testSockPath(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "s")
+	if len(p) < 100 {
+		return p
+	}
+	dir, err := os.MkdirTemp("", "ht")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "s")
 }
 
 func waitForSocket(t *testing.T, path string, timeout time.Duration) {
@@ -116,7 +132,7 @@ func TestDaemonRecordPredictRoundtrip(t *testing.T) {
 func TestDaemonPersistence(t *testing.T) {
 	opts := LoadConfig()
 	dbPath := filepath.Join(t.TempDir(), "hunch.db")
-	sockPath := filepath.Join(t.TempDir(), "hunch.sock")
+	sockPath := testSockPath(t)
 	opts.DBPath = dbPath
 	opts.Socket = sockPath
 
@@ -439,7 +455,7 @@ func TestDaemonStaleLockRecovery(t *testing.T) {
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "hunch.lock")
 	pidPath := filepath.Join(dir, "hunch.pid")
-	sockPath := filepath.Join(dir, "hunch.sock")
+	sockPath := testSockPath(t)
 	dbPath := filepath.Join(dir, "hunch.db")
 
 	os.WriteFile(lockPath, []byte("stale"), 0644)
@@ -472,7 +488,7 @@ func TestDaemonStaleLockRecovery(t *testing.T) {
 
 func TestDaemonContextCancellation(t *testing.T) {
 	opts := LoadConfig()
-	opts.Socket = filepath.Join(t.TempDir(), "hunch.sock")
+	opts.Socket = testSockPath(t)
 	opts.DBPath = filepath.Join(t.TempDir(), "hunch.db")
 
 	ctx, cancel := context.WithCancel(context.Background())

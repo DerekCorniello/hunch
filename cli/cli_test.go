@@ -16,7 +16,7 @@ import (
 // so that CLI commands can discover the daemon via env.
 func startTestDaemon(t *testing.T) (string, func()) {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "hunch.sock")
+	socket := testSockPath(t)
 	dbPath := filepath.Join(t.TempDir(), "hunch.db")
 
 	t.Setenv("HUNCH_SOCKET", socket)
@@ -44,6 +44,21 @@ func startTestDaemon(t *testing.T) (string, func()) {
 		cancel()
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+// testSockPath returns a socket path short enough for Unix domain sockets.
+func testSockPath(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "s")
+	if len(p) < 100 {
+		return p
+	}
+	dir, err := os.MkdirTemp("", "ht")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "s")
 }
 
 func TestVersion(t *testing.T) {
