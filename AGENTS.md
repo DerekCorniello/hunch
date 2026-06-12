@@ -141,6 +141,33 @@ Must remain minimal and contain no learning logic.
 
 ---
 
+## Development
+
+### Pre-commit hooks
+
+```bash
+make hooks    # one-time setup — configures git to use .githooks/
+```
+
+The pre-commit hook runs:
+1. `go vet ./...`
+2. Cross-compile check (linux, darwin, windows)
+3. Core + IPC unit tests
+
+Run the full CI suite before pushing:
+
+```bash
+make check   # test + test-race + vet + lint + lint-shell
+```
+
+### Code coverage
+
+```bash
+go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | grep total
+```
+
+---
+
 ## Mental Model
 
 Think of Hunch as:

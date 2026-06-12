@@ -6,7 +6,7 @@ BIN := hunch
 
 .PHONY: all build test test-race vet lint lint-shell clean install
 
-all: build
+all: hooks build
 
 build:
 	$(GO) build $(LDFLAGS) -o $(BIN) .
@@ -33,6 +33,12 @@ lint-shell:
 	fish -n integrations/fish/hunch.fish
 	@echo "--- powershell ---"
 	pwsh -NoLogo -NoProfile -Command "Get-Command -Syntax . 'integrations/powershell/hunch.ps1'"
+
+hooks:
+	@if [ "$(shell git config core.hooksPath)" != ".githooks" ]; then \
+		git config core.hooksPath .githooks; \
+		echo "configured git hooks (.githooks/)"; \
+	fi
 
 check: test test-race vet lint lint-shell
 	@echo "all checks passed"

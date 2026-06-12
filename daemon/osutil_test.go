@@ -4,7 +4,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -120,11 +119,4 @@ func TestOpenLock_FileCreation(t *testing.T) {
 	}
 }
 
-func TestProcessExists_SelfWithSignal(t *testing.T) {
-	// Verify that processExists (unexported) works the same as the exported
-	// wrapper by testing via syscall directly.
-	err := syscall.Kill(os.Getpid(), syscall.Signal(0))
-	if err != nil {
-		t.Fatalf("kill self (signal 0) should succeed: %v", err)
-	}
-}
+

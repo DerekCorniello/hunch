@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== pre-commit: go vet ==="
+go vet ./...
+
+echo "=== pre-commit: cross-compile check ==="
+for os in linux darwin windows; do
+	if ! GOOS=$os GOARCH=amd64 go build -o /dev/null ./... 2>/dev/null; then
+		echo "FAIL: GOOS=$os build failed"
+		exit 1
+	fi
+done
+echo "    linux/darwin/windows: ok"
+
+echo "=== pre-commit: unit tests ==="
+go test ./core/... ./ipc/... -count=1
