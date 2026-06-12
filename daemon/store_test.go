@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -99,6 +100,52 @@ func TestStoreSaveUpserts(t *testing.T) {
 	}
 	if loaded[0].Count != 10 {
 		t.Errorf("count after upsert = %d, want 10", loaded[0].Count)
+	}
+}
+
+func TestOpenStore_BadPath(t *testing.T) {
+	// A path to a directory instead of a file should fail.
+	_, err := openStore(t.TempDir())
+	if err == nil {
+		t.Fatal("expected error opening store with directory path")
+	}
+}
+
+func TestOpenStore_CorruptDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "corrupt.db")
+	if err := os.WriteFile(dbPath, []byte("not a valid sqlite database"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := openStore(dbPath)
+	if err == nil {
+		t.Error("expected error opening corrupt database")
+	}
+}
+
+func TestStoreSave_EmptyTransitions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	st, err := openStore(dbPath)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	defer st.close()
+
+	if err := st.save(nil); err != nil {
+		t.Fatalf("save(nil): %v", err)
+	}
+
+	if err := st.save([]graph.Transition{}); err != nil {
+		t.Fatalf("save(empty): %v", err)
+	}
+
+	loaded, err := st.load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded) != 0 {
+		t.Errorf("expected 0 transitions, got %d", len(loaded))
 	}
 }
 

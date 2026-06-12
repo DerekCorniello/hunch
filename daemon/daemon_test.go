@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DerekCorniello/hunch/core/types"
 )
 
 func startDaemon(t *testing.T, opts Options) (context.Context, context.CancelFunc, string) {
@@ -599,6 +602,263 @@ func TestDaemonNormalizeOp(t *testing.T) {
 	}
 	if resp.Template != "git commit FLAG STR" {
 		t.Errorf("template = %q, want %q", resp.Template, "git commit FLAG STR")
+	}
+}
+
+func TestImportSeed(t *testing.T) {
+	t.Run("valid_seed", func(t *testing.T) {
+		_, _, socket := startDaemon(t, LoadConfig())
+
+		dir := t.TempDir()
+		seedPath := filepath.Join(dir, "seed.json")
+		seed := `{"version":1,"transitions":[{"state":["","a"],"next":"b","count":2,"last_seen":"2025-01-01T00:00:00Z"}]}` + "\n"
+		if err := os.WriteFile(seedPath, []byte(seed), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op":   "import",
+			"next": seedPath,
+		})
+		var resp map[string]interface{}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if resp["ok"] != true {
+			t.Fatalf("import response: %v", resp)
+		}
+
+		// Verify the imported transition is visible.
+		conn = dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op":    "predict",
+			"state": []string{"", "a"},
+			"limit": 5,
+		})
+		var predResp struct {
+			Suggestions []struct {
+				Template string `json:"template"`
+				Count    int    `json:"count"`
+			} `json:"suggestions"`
+		}
+		readJSON(t, conn, &predResp)
+		conn.Close()
+
+		if len(predResp.Suggestions) != 1 {
+			t.Fatalf("expected 1 suggestion after import, got %d", len(predResp.Suggestions))
+		}
+		if predResp.Suggestions[0].Template != "b" {
+			t.Errorf("template = %q, want %q", predResp.Suggestions[0].Template, "b")
+		}
+		if predResp.Suggestions[0].Count != 2 {
+			t.Errorf("count = %d, want 2", predResp.Suggestions[0].Count)
+		}
+	})
+
+	t.Run("missing_path", func(t *testing.T) {
+		_, _, socket := startDaemon(t, LoadConfig())
+
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op": "import",
+		})
+		var resp struct {
+			Error string `json:"error"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if resp.Error == "" {
+			t.Fatal("expected error for missing import path")
+		}
+		if !strings.Contains(resp.Error, "import path required") {
+			t.Errorf("error = %q, want 'import path required'", resp.Error)
+		}
+	})
+
+	t.Run("nonexistent_path", func(t *testing.T) {
+		_, _, socket := startDaemon(t, LoadConfig())
+
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op":   "import",
+			"next": "/nonexistent/file.json",
+		})
+		var resp struct {
+			Error string `json:"error"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if resp.Error == "" {
+			t.Fatal("expected error for nonexistent import path")
+		}
+		if !strings.Contains(resp.Error, "import failed") {
+			t.Errorf("error = %q, want 'import failed'", resp.Error)
+		}
+	})
+
+	t.Run("malformed_seed", func(t *testing.T) {
+		_, _, socket := startDaemon(t, LoadConfig())
+
+		dir := t.TempDir()
+		seedPath := filepath.Join(dir, "bad.json")
+		if err := os.WriteFile(seedPath, []byte("{{{not json"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op":   "import",
+			"next": seedPath,
+		})
+		var resp struct {
+			Error string `json:"error"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if resp.Error == "" {
+			t.Fatal("expected error for malformed seed")
+		}
+		if !strings.Contains(resp.Error, "import failed") {
+			t.Errorf("error = %q, want 'import failed'", resp.Error)
+		}
+	})
+}
+
+func TestFilterByPrefix(t *testing.T) {
+	suggestions := []types.Suggestion{
+		{Template: "git push STR", Score: 0.8, Count: 10},
+		{Template: "git commit FLAG STR", Score: 0.6, Count: 5},
+		{Template: "cargo build", Score: 0.4, Count: 3},
+	}
+
+	t.Run("matches_some", func(t *testing.T) {
+		result := filterByPrefix(suggestions, "git")
+		if len(result) != 2 {
+			t.Fatalf("expected 2 matches, got %d", len(result))
+		}
+	})
+
+	t.Run("no_matches", func(t *testing.T) {
+		result := filterByPrefix(suggestions, "docker")
+		if len(result) != 0 {
+			t.Errorf("expected 0 matches, got %d", len(result))
+		}
+	})
+
+	t.Run("all_match", func(t *testing.T) {
+		result := filterByPrefix(suggestions, "")
+		if len(result) != 3 {
+			t.Errorf("expected 3 matches with empty prefix, got %d", len(result))
+		}
+	})
+
+	t.Run("exact_match", func(t *testing.T) {
+		result := filterByPrefix(suggestions, "git push STR")
+		if len(result) != 1 {
+			t.Fatalf("expected 1 match, got %d", len(result))
+		}
+		if result[0].Template != "git push STR" {
+			t.Errorf("template = %q, want %q", result[0].Template, "git push STR")
+		}
+	})
+
+	t.Run("empty_input", func(t *testing.T) {
+		result := filterByPrefix(nil, "git")
+		if len(result) != 0 {
+			t.Errorf("expected 0 from nil input, got %d", len(result))
+		}
+	})
+}
+
+func TestParseLogLevel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"DEBUG", slog.LevelDebug},
+		{"Debug", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"WARN", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"unknown", slog.LevelInfo},
+		{"", slog.LevelInfo},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := parseLogLevel(tt.input)
+			if got != tt.want {
+				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseAt(t *testing.T) {
+	t.Run("valid_rfc3339", func(t *testing.T) {
+		ts, err := parseAt("2025-01-01T12:00:00Z")
+		if err != nil {
+			t.Fatalf("parseAt: %v", err)
+		}
+		if ts.Year() != 2025 || ts.Month() != 1 || ts.Day() != 1 {
+			t.Errorf("unexpected date: %v", ts)
+		}
+	})
+
+	t.Run("empty_string", func(t *testing.T) {
+		ts, err := parseAt("")
+		if err != nil {
+			t.Fatalf("parseAt(''): %v", err)
+		}
+		if !ts.IsZero() {
+			t.Error("expected zero time for empty string")
+		}
+	})
+
+	t.Run("whitespace_string", func(t *testing.T) {
+		ts, err := parseAt("  ")
+		if err != nil {
+			t.Fatalf("parseAt('  '): %v", err)
+		}
+		if !ts.IsZero() {
+			t.Error("expected zero time for whitespace string")
+		}
+	})
+
+	t.Run("invalid_format", func(t *testing.T) {
+		_, err := parseAt("not-a-timestamp")
+		if err == nil {
+			t.Fatal("expected error for invalid timestamp")
+		}
+	})
+}
+
+func TestDaemonConfigOp(t *testing.T) {
+	_, _, socket := startDaemon(t, LoadConfig())
+
+	conn := dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op": "config",
+	})
+	var resp struct {
+		AcceptKeys   []string `json:"accept_keys"`
+		ExtraParents []string `json:"extra_parents"`
+		HalfLife     string   `json:"half_life"`
+		Alpha        float64  `json:"alpha"`
+	}
+	readJSON(t, conn, &resp)
+	conn.Close()
+
+	if resp.HalfLife != "720h0m0s" {
+		t.Errorf("half_life = %q, want %q", resp.HalfLife, "720h0m0s")
+	}
+	if resp.Alpha != 0.5 {
+		t.Errorf("alpha = %f, want 0.5", resp.Alpha)
 	}
 }
 

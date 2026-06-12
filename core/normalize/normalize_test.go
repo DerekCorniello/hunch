@@ -584,6 +584,35 @@ func TestNormalizeNilParents(t *testing.T) {
 	}
 }
 
+func TestMergeParents(t *testing.T) {
+	t.Run("empty_extras", func(t *testing.T) {
+		result := MergeParents(nil)
+		if len(result) != len(DefaultParents) {
+			t.Errorf("len(MergeParents(nil)) = %d, want %d", len(result), len(DefaultParents))
+		}
+	})
+
+	t.Run("with_extras", func(t *testing.T) {
+		extras := []string{"mycli", "teamtool"}
+		result := MergeParents(extras)
+		if len(result) != len(DefaultParents)+2 {
+			t.Errorf("len(MergeParents(extras)) = %d, want %d", len(result), len(DefaultParents)+2)
+		}
+		if result[len(DefaultParents)] != "mycli" {
+			t.Errorf("result[len(DefaultParents)] = %q, want %q", result[len(DefaultParents)], "mycli")
+		}
+	})
+
+	t.Run("dedup_not_guaranteed", func(t *testing.T) {
+		extras := []string{"git"} // git is already in DefaultParents
+		result := MergeParents(extras)
+		// MergeParents does NOT deduplicate, so expect 1 extra.
+		if len(result) != len(DefaultParents)+1 {
+			t.Errorf("len(MergeParents([git])) = %d, want %d", len(result), len(DefaultParents)+1)
+		}
+	})
+}
+
 func TestNormalizeWorkflows(t *testing.T) {
 	tests := []struct {
 		name     string

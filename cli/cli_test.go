@@ -478,3 +478,144 @@ func TestClientImportMissingPath(t *testing.T) {
 		t.Fatal("expected error for missing --path")
 	}
 }
+
+func TestImportHistoryUnknownShell(t *testing.T) {
+	err := Run([]string{"import-history", "unknown"})
+	if err == nil {
+		t.Fatal("expected error for unknown shell")
+	}
+	if !strings.Contains(err.Error(), "unknown shell") {
+		t.Errorf("error = %q, want 'unknown shell'", err)
+	}
+}
+
+func TestImportHistoryMissingShell(t *testing.T) {
+	err := Run([]string{"import-history"})
+	if err == nil {
+		t.Fatal("expected error for missing shell arg")
+	}
+}
+
+func TestImportHistoryNoDaemon(t *testing.T) {
+	t.Setenv("HUNCH_SOCKET", filepath.Join(t.TempDir(), "nonexistent.sock"))
+
+	dir := t.TempDir()
+	historyPath := filepath.Join(dir, "zsh_history")
+	if err := os.WriteFile(historyPath, []byte(": 1:0;echo hello\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Run([]string{"import-history", "zsh", "--path", historyPath})
+	if err == nil {
+		t.Fatal("expected error when daemon is not running")
+	}
+	if !strings.Contains(err.Error(), "daemon must be running") {
+		t.Errorf("error = %q, want 'daemon must be running'", err)
+	}
+}
+
+func TestEnsureIntegrations(t *testing.T) {
+	err := EnsureIntegrations()
+	if err != nil {
+		t.Fatalf("EnsureIntegrations: %v", err)
+	}
+}
+
+func TestClientRecordWithOutcomeAndCWD(t *testing.T) {
+	_, stop := startTestDaemon(t)
+	defer stop()
+
+	err := Run([]string{
+		"client", "record",
+		"--state", ",git add .",
+		"--next", "git commit -m init",
+		"--outcome", "success",
+		"--cwd", "/home/user/project",
+	})
+	if err != nil {
+		t.Fatalf("record with outcome and cwd failed: %v", err)
+	}
+
+	err = Run([]string{"client", "predict", "--state", ",git add PATH", "--limit", "3"})
+	if err != nil {
+		t.Fatalf("predict after record failed: %v", err)
+	}
+}
+
+func TestClientRecordCustomTimestamp(t *testing.T) {
+	_, stop := startTestDaemon(t)
+	defer stop()
+
+	err := Run([]string{
+		"client", "record",
+		"--state", ",prev,prev2",
+		"--next", "some cmd",
+		"--at", "2025-06-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("record with custom timestamp failed: %v", err)
+	}
+}
+
+func TestDaemonStartCommand(t *testing.T) {
+	_, stop := startTestDaemon(t)
+	defer stop()
+
+	err := Run([]string{"daemon", "start"})
+	t.Logf("daemon start while running: %v", err)
+}
+
+func TestEnsureIntegrationsSuccess(t *testing.T) {
+	err := EnsureIntegrations()
+	if err != nil {
+		t.Fatalf("EnsureIntegrations: %v", err)
+	}
+}
+
+func TestFindIntegrationInDataDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dir)
+
+	// Without integration files, findIntegration should return the expected
+	// data dir path (the "last resort" line) since no fallback matches.
+	path, err := findIntegration("zsh")
+	if err != nil {
+		t.Fatalf("findIntegration(zsh): %v", err)
+	}
+	if !strings.HasPrefix(path, dir) {
+		t.Errorf("expected path in %q, got %q", dir, path)
+	}
+}
+
+func TestDaemonStatusNotRunning(t *testing.T) {
+	t.Setenv("HUNCH_SOCKET", filepath.Join(t.TempDir(), "nonexistent.sock"))
+
+	err := Run([]string{"daemon", "status"})
+	if err != nil {
+		t.Fatalf("daemon status when not running should not error: %v", err)
+	}
+}
+
+func TestDaemonRunAction(t *testing.T) {
+	// Test the "run" action path of cmdDaemon (just validates it routes).
+	// We can't actually run the daemon in foreground in a test without
+	// blocking, but we can verify the parsing works for the "run" subcommand.
+	_, stop := startTestDaemon(t)
+	defer stop()
+
+	// "daemon run" will attempt to run in foreground and get EADDRINUSE.
+	// This exercises the daemon run path without blocking indefinitely
+	// because the socket is already taken.
+	done := make(chan error, 1)
+	go func() {
+		done <- Run([]string{"daemon", "run"})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Log("daemon run succeeded (unexpected but ok)")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("daemon run blocked; expected it to fail quickly with address in use")
+	}
+}
