@@ -27,18 +27,15 @@ type windowsLocker struct {
 }
 
 func (l *windowsLocker) Lock() error {
-	var bytesToLockLow uint32 = 1
-	var bytesToLockHigh uint32 = 0
-
-	_OVERLAPPED := [8]byte{}
+	ol := &windows.Overlapped{}
 
 	ret, _, err := procLockFileEx.Call(
 		uintptr(l.f.Fd()),
 		uintptr(lockfileExclusiveLock|lockfileFailImmediately),
 		0,
-		uintptr(bytesToLockLow),
-		uintptr(bytesToLockHigh),
-		uintptr(unsafe.Pointer(&_OVERLAPPED[0])),
+		1, // nNumberOfBytesToLockLow
+		0, // nNumberOfBytesToLockHigh
+		uintptr(unsafe.Pointer(ol)),
 	)
 	if ret == 0 {
 		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
