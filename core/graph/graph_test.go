@@ -124,7 +124,9 @@ func TestGraphMergeIncrementsExisting(t *testing.T) {
 	seed := []Transition{
 		{State: state, Next: next, Count: 2, LastSeen: t2},
 	}
-	g.Merge(seed)
+	if err := g.Merge(seed); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
 
 	transitions := g.Transitions(state)
 	if len(transitions) != 1 {
@@ -152,7 +154,9 @@ func TestGraphMergeTakesNewerLastSeen(t *testing.T) {
 	seed := []Transition{
 		{State: state, Next: next, Count: 1, LastSeen: older},
 	}
-	g.Merge(seed)
+	if err := g.Merge(seed); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
 
 	transitions := g.Transitions(state)
 	if !transitions[0].LastSeen.Equal(newer) {
@@ -174,7 +178,9 @@ func TestGraphMergeWithOlderSeedLastSeen(t *testing.T) {
 	seed := []Transition{
 		{State: state, Next: next, Count: 1, LastSeen: newer},
 	}
-	g.Merge(seed)
+	if err := g.Merge(seed); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
 
 	transitions := g.Transitions(state)
 	if !transitions[0].LastSeen.Equal(newer) {

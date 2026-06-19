@@ -103,7 +103,7 @@ func (s *store) save(transitions []graph.Transition) error {
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(`
 		INSERT INTO transitions (state, next, count, last_seen)
@@ -177,7 +177,7 @@ func (s *store) saveRawExamples(examples map[string]map[string]int) error {
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(`
 		INSERT INTO raw_examples (template, raw, count)

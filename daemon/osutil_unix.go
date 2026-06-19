@@ -27,7 +27,7 @@ func (l *unixLocker) Unlock() error {
 }
 
 func (l *unixLocker) Close() error {
-	l.Unlock()
+	_ = l.Unlock()
 	return l.f.Close()
 }
 

@@ -21,8 +21,6 @@ import (
 	"github.com/DerekCorniello/hunch/ipc"
 )
 
-const maxRequestSize = 1 << 20 // 1 MB limit for IPC requests
-
 const (
 	flushThreshold = 50
 	flushInterval  = 5 * time.Second
@@ -250,15 +248,15 @@ func (d *daemon) handleConn(conn net.Conn) {
 		conn.Close()
 	}()
 
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	req, err := parseRequest(conn)
 	if err != nil {
-		writeError(conn, "bad request")
+		_ = writeError(conn, "bad request")
 		return
 	}
 
-	conn.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
 	switch req.Op {
 	case "record":
@@ -282,14 +280,14 @@ func (d *daemon) handleConn(conn net.Conn) {
 	case "record_raws":
 		d.handleRecordRaws(conn, req)
 	default:
-		writeError(conn, fmt.Sprintf("unknown op: %s", req.Op))
+		_ = writeError(conn, fmt.Sprintf("unknown op: %s", req.Op))
 	}
 }
 
 func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	at, err := parseAt(req.At)
 	if err != nil {
-		writeError(conn, fmt.Sprintf("bad at: %s", err))
+		_ = writeError(conn, fmt.Sprintf("bad at: %s", err))
 		return
 	}
 	if at.IsZero() {
@@ -335,7 +333,7 @@ func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
 		Count    int    `json:"count"`
 	}
 	if err := json.Unmarshal([]byte(req.Next), &examples); err != nil {
-		writeError(conn, fmt.Sprintf("bad examples: %v", err))
+		_ = writeError(conn, fmt.Sprintf("bad examples: %v", err))
 		return
 	}
 
@@ -356,7 +354,7 @@ func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
 func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	at, err := parseAt(req.At)
 	if err != nil {
-		writeError(conn, fmt.Sprintf("bad at: %s", err))
+		_ = writeError(conn, fmt.Sprintf("bad at: %s", err))
 		return
 	}
 	if at.IsZero() {
@@ -461,7 +459,7 @@ func (d *daemon) handleStats(conn net.Conn) {
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
-		writeError(conn, "marshal stats")
+		_ = writeError(conn, "marshal stats")
 		return
 	}
 	fmt.Fprint(conn, string(data)+"\n")
@@ -473,7 +471,7 @@ func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
 		raw = req.State[len(req.State)-1]
 	}
 	if raw == "" {
-		writeError(conn, "no input to normalize")
+		_ = writeError(conn, "no input to normalize")
 		return
 	}
 	template := normalize.Normalize(raw, d.parents)
@@ -483,7 +481,7 @@ func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
-		writeError(conn, "marshal normalize")
+		_ = writeError(conn, "marshal normalize")
 		return
 	}
 	fmt.Fprint(conn, string(data)+"\n")
@@ -498,7 +496,7 @@ func (d *daemon) handleConfig(conn net.Conn) {
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
-		writeError(conn, "marshal config")
+		_ = writeError(conn, "marshal config")
 		return
 	}
 	fmt.Fprint(conn, string(data)+"\n")
@@ -506,31 +504,31 @@ func (d *daemon) handleConfig(conn net.Conn) {
 
 func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
 	if req.Next == "" {
-		writeError(conn, "import path required")
+		_ = writeError(conn, "import path required")
 		return
 	}
 	// Only allow regular files (no device files, FIFOs, etc.). No path
 	// traversal either — seed files should be under the data directory.
 	p, err := filepath.Abs(req.Next)
 	if err != nil {
-		writeError(conn, fmt.Sprintf("bad path: %v", err))
+		_ = writeError(conn, fmt.Sprintf("bad path: %v", err))
 		return
 	}
 	fi, err := os.Stat(p)
 	if err != nil {
 		if os.IsNotExist(err) {
-			writeError(conn, "file not found")
+			_ = writeError(conn, "file not found")
 		} else {
-			writeError(conn, fmt.Sprintf("stat: %v", err))
+			_ = writeError(conn, fmt.Sprintf("stat: %v", err))
 		}
 		return
 	}
 	if !fi.Mode().IsRegular() {
-		writeError(conn, "not a regular file")
+		_ = writeError(conn, "not a regular file")
 		return
 	}
 	if err := d.importSeed(p); err != nil {
-		writeError(conn, fmt.Sprintf("import failed: %v", err))
+		_ = writeError(conn, fmt.Sprintf("import failed: %v", err))
 		return
 	}
 	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha))

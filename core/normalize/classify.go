@@ -129,7 +129,10 @@ var defaultParentSet = makeSet(DefaultParents)
 
 // classifiedPool reduces allocations on repeated classifyToken calls.
 var classifiedPool = sync.Pool{
-	New: func() any { return make([]classification, 0, 32) },
+	New: func() any {
+		s := make([]classification, 0, 32)
+		return &s
+	},
 }
 
 // classifyTokens runs Phase 2 token-type classification and collapses
@@ -153,9 +156,11 @@ func classifyTokens(tokens []string, parents []string) []string {
 
 	// Phase 2a: classify each token individually.
 	n := len(tokens)
-	pooled := classifiedPool.Get().([]classification)
+	pooledPtr := classifiedPool.Get().(*[]classification)
+	pooled := *pooledPtr
 	if cap(pooled) < n {
 		pooled = make([]classification, n)
+		*pooledPtr = pooled
 	} else {
 		pooled = pooled[:n]
 	}
@@ -166,8 +171,8 @@ func classifyTokens(tokens []string, parents []string) []string {
 
 	// Phase 2b: collapse consecutive same-type tokens.
 	result := collapseTokens(tokens, pooled)
-	pooled = pooled[:0]
-	classifiedPool.Put(pooled)
+	*pooledPtr = (*pooledPtr)[:0]
+	classifiedPool.Put(pooledPtr)
 	return result
 }
 

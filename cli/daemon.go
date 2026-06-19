@@ -39,7 +39,9 @@ func cmdDaemonRun(args []string) error {
 
 	fs := flag.NewFlagSet("hunch daemon run", flag.ContinueOnError)
 	seedPath := fs.String("seed", "", "path to seed JSON for initial training")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	opts.SeedPath = *seedPath
 
 	if opts.Socket == "" {

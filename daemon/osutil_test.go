@@ -95,12 +95,12 @@ func TestOpenLock(t *testing.T) {
 			t.Fatalf("lock2.Lock: expected ErrLocked, got %v", err)
 		}
 
-		lock1.Unlock()
+		_ = lock1.Unlock()
 
 		if err := lock2.Lock(); err != nil {
 			t.Fatalf("lock2.Lock after unlock: %v", err)
 		}
-		lock2.Unlock()
+		_ = lock2.Unlock()
 	})
 }
 

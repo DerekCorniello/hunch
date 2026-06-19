@@ -17,7 +17,9 @@ var shells = []string{"zsh", "bash", "fish", "powershell"}
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("hunch init", flag.ContinueOnError)
 	autoAppend := fs.Bool("auto", false, "automatically append source line to rc file")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	shell := ""
 	if fs.NArg() > 0 {
@@ -197,7 +199,7 @@ func offerHistoryImport(shell string) {
 	fmt.Fprintf(os.Stderr, "\nImport your command history to jump-start predictions? [Y/n]: ")
 
 	var answer string
-	fmt.Scanln(&answer)
+	_, _ = fmt.Scanln(&answer)
 	answer = strings.TrimSpace(strings.ToLower(answer))
 
 	if answer == "" || answer == "y" || answer == "yes" {
@@ -219,21 +221,6 @@ func validShell(shell string) bool {
 		return true
 	}
 	return false
-}
-
-func rcFile(shell string) string {
-	switch shell {
-	case "zsh":
-		return "zshrc"
-	case "bash":
-		return "bashrc"
-	case "fish":
-		return "config/fish/config.fish"
-	case "powershell":
-		return "Microsoft.PowerShell_profile.ps1"
-	default:
-		return "profile"
-	}
 }
 
 func EnsureIntegrations() error {

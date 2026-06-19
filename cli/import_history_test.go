@@ -288,7 +288,7 @@ func TestResolveHistoryPath_ShellDefaults(t *testing.T) {
 func TestCountLines(t *testing.T) {
 	t.Run("empty_file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "empty")
-		os.WriteFile(path, []byte(""), 0644)
+		_ = os.WriteFile(path, []byte(""), 0644)
 		if n := countLines(path); n != 0 {
 			t.Errorf("countLines(empty) = %d, want 0", n)
 		}

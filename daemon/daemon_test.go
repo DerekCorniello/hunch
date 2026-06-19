@@ -472,8 +472,12 @@ func TestDaemonStaleLockRecovery(t *testing.T) {
 	sockPath := testSockPath(t)
 	dbPath := filepath.Join(dir, "hunch.db")
 
-	os.WriteFile(lockPath, []byte("stale"), 0644)
-	os.WriteFile(pidPath, []byte("999999999"), 0644)
+	if err := os.WriteFile(lockPath, []byte("stale"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pidPath, []byte("999999999"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	opts := LoadConfig()
 	opts.Socket = sockPath

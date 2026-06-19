@@ -136,7 +136,7 @@ func runImport(shell, path string, threads int, progress func(string)) error {
 	if err != nil {
 		return fmt.Errorf("normalize: %w", err)
 	}
-	progress(fmt.Sprintf("normalized, "))
+	progress("normalized, ")
 
 	transitions := buildTransitions(normalized)
 	progress(fmt.Sprintf("%d transitions, ", len(transitions)))

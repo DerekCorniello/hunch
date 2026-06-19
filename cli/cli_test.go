@@ -373,7 +373,7 @@ func TestDaemonStatusInvalidPid(t *testing.T) {
 	pidPath := filepath.Join(dir, "hunch.pid")
 	socketDir := filepath.Dir(socket)
 	if socketDir != "" && socketDir != "." {
-		os.MkdirAll(socketDir, 0755)
+		_ = os.MkdirAll(socketDir, 0755)
 	}
 
 	// Create a socket so status finds it.

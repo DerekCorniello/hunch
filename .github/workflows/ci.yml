@@ -21,6 +21,8 @@ jobs:
       - run: go mod verify
       - run: go vet ./...
       - run: go test ./... -race -count=1 -timeout=120s
+        env:
+          GOCACHE: ${{ runner.temp }}/go-cache
       - run: go test -coverprofile=/tmp/c.out ./core/... ./ipc/...
         if: matrix.os == 'ubuntu-latest'
 
