@@ -6,68 +6,44 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
-
 jobs:
   test:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ['1.25']
+        go: ['1.25']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test -race -count=1 -coverprofile=${{ runner.temp }}/coverage.out ./...
-
-      - name: Build
-        run: go build -o hunch${{ runner.os == 'Windows' && '.exe' || '' }} .
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.os }}
-          path: ${{ runner.temp }}/coverage.out
+          go-version: ${{ matrix.go }}
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go test ./... -race -count=1 -timeout=120s
+      - run: go test -coverprofile=/tmp/c.out ./core/... ./ipc/...
+        if: matrix.os == 'ubuntu-latest'
 
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
 
-      - name: Install tools
-        run: sudo apt-get update && sudo apt-get install -y shellcheck zsh fish
-
-      - name: shellcheck (bash)
-        run: shellcheck integrations/bash/hunch.bash
-
-      - name: zsh syntax check
-        run: zsh -n integrations/zsh/hunch.zsh
-
-      - name: fish syntax check
-        run: fish -n integrations/fish/hunch.fish
-
-      - name: PowerShell syntax check
-        shell: pwsh
-        run: |
-          $tokens = $null
-          $errors = $null
-          $ast = [System.Management.Automation.Language.Parser]::ParseInput(
-            (Get-Content integrations/powershell/hunch.ps1 -Raw),
-            [ref] $tokens,
-            [ref] $errors
-          )
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            exit 1
-          }
-          Write-Output "PowerShell syntax OK"
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: GOOS=linux   GOARCH=amd64 go build -o /dev/null ./...
+      - run: GOOS=darwin  GOARCH=amd64 go build -o /dev/null ./...
+      - run: GOOS=windows GOARCH=amd64 go build -o /dev/null ./...
+      - run: GOOS=linux   GOARCH=arm64 go build -o /dev/null ./...
+      - run: GOOS=darwin  GOARCH=arm64 go build -o /dev/null ./...

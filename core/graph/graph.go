@@ -39,8 +39,11 @@ type Graph struct {
 	m          map[string]map[string]*entry
 }
 
-// New creates a Graph with the given window size.
+// New creates a Graph with the given window size (must be at least 1).
 func New(windowSize int) *Graph {
+	if windowSize < 1 {
+		windowSize = 1
+	}
 	return &Graph{
 		windowSize: windowSize,
 		m:          make(map[string]map[string]*entry),

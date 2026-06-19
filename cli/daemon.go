@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -35,6 +36,12 @@ func cmdDaemon(args []string) error {
 
 func cmdDaemonRun(args []string) error {
 	opts := daemon.LoadConfig()
+
+	fs := flag.NewFlagSet("hunch daemon run", flag.ContinueOnError)
+	seedPath := fs.String("seed", "", "path to seed JSON for initial training")
+	fs.Parse(args)
+	opts.SeedPath = *seedPath
+
 	if opts.Socket == "" {
 		return fmt.Errorf("could not determine socket path; set HUNCH_SOCKET")
 	}
@@ -46,7 +53,7 @@ func cmdDaemonRun(args []string) error {
 	defer cancel()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 	go func() {
 		<-sigCh
 		cancel()

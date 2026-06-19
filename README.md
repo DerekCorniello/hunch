@@ -15,11 +15,10 @@ It builds a lightweight statistical model from your own command history — no A
 # Install
 go install github.com/DerekCorniello/hunch@latest
 
-# Get the source line for your shell
-hunch init zsh
-# Prints: source /home/user/.local/share/hunch/integrations/zsh/hunch.zsh
+# Set up shell integration (auto-detects your shell, appends to rc file)
+hunch init --auto
 
-# Add it to your rc file, restart your shell, and you're done.
+# Restart your shell, and you're done.
 # Hunch learns from every command. Predictions appear as you type.
 
 # Start using it — predictions appear as ghost text
@@ -69,14 +68,18 @@ Hunch requires no external runtime dependencies. The Go binary is fully static (
 
 ## Shell integration
 
-Run `hunch init <shell>` to print the source line to add to your rc file:
+Run `hunch init <shell>` to print the source line to add to your rc file, or use `--auto` to append it automatically:
 
 ```bash
-# zsh — ghost text with Right/End accept
+# Auto-detect shell and append source line to rc file
+hunch init --auto
+
+# Or specify shell explicitly
+hunch init zsh --auto
+
+# Without --auto, just prints the source line
 hunch init zsh
 # Prints: source /path/to/hunch/integrations/zsh/hunch.zsh
-
-# Add the printed line to ~/.zshrc, then restart your shell.
 
 # bash — Tab-accept
 hunch init bash
@@ -107,9 +110,13 @@ All integrations:
 
 ## CLI reference
 
-### `hunch init <shell>`
+### `hunch init [shell]`
 
-Print the shell integration source line. Supported shells: `zsh`, `bash`, `fish`, `powershell`.
+Set up shell integration. Auto-detects shell from `$SHELL` if not specified. Supported shells: `zsh`, `bash`, `fish`, `powershell`.
+
+```
+--auto               Automatically append source line to rc file
+```
 
 When run interactively, `hunch init` detects your shell history and offers to import
 it to jump-start predictions. In non-interactive contexts (piped, scripted), the
@@ -159,8 +166,6 @@ Send an IPC operation to the running daemon.
 ```
 --state <prev1,prev2>   Previous 1–2 commands (comma-separated)
 --next <command>        The command that was run
---outcome <type>        success or failure
---cwd <path>            Working directory
 --at <timestamp>        ISO 8601 timestamp
 ```
 
@@ -170,6 +175,43 @@ Send an IPC operation to the running daemon.
 --state <prev1,prev2>   Previous 1–2 commands (comma-separated)
 --prefix <text>         Current buffer text for filtering
 --limit <n>             Max suggestions (default: 3)
+```
+
+### `hunch doctor`
+
+Check hunch installation and daemon health. Verifies:
+- Binary location and PATH
+- Daemon status
+- Database file
+- Shell integration source line
+
+Returns exit code 0 if all checks pass, non-zero otherwise.
+
+### `hunch uninstall`
+
+Remove hunch from your system. Stops the daemon, removes all data files (database, socket, logs, integrations, config), and removes the source line from all shell rc files.
+
+```
+--yes, -y            Skip confirmation prompt
+```
+
+### `hunch update`
+
+Check for and install updates. Queries GitHub for the latest release, compares versions, and re-installs via `go install` if a newer version is available. Automatically restarts the daemon after updating.
+
+### Shortcut commands
+
+For convenience, these shortcuts wrap common `hunch client` operations:
+
+| Command | Equivalent |
+|---------|------------|
+| `hunch stats` | `hunch client stats` |
+| `hunch predict [flags]` | `hunch client predict [flags]` |
+| `hunch reset` | `hunch client reset` |
+
+Example:
+```bash
+hunch predict --state "git add,git commit" --limit 5
 ```
 
 ---
@@ -183,7 +225,6 @@ Send an IPC operation to the running daemon.
 | `HUNCH_BIN` | Binary path | `hunch` (from PATH) |
 | `HUNCH_SOCKET` | Unix socket path | `~/.cache/hunch.sock` |
 | `HUNCH_DB_PATH` | SQLite database path | `~/.local/share/hunch.db` |
-| `HUNCH_ACCEPT_KEYS` | Accept key override | `right,end` |
 | `HUNCH_DAEMON_BIN` | Daemon binary path | (same as `hunch`) |
 | `HUNCH_HALF_LIFE_HOURS` | Decay half-life | `720` (30 days) |
 | `HUNCH_ALPHA` | Additive smoothing | `0.5` |
@@ -253,6 +294,77 @@ real-time scanning to avoid lock contention with the SQLite database.
 - No multi-user graph merging
 - No complex shell grammar parsing
 - No daemon-less mode (the daemon is required)
+
+---
+
+## Troubleshooting
+
+### No predictions appear
+
+1. Check if the daemon is running:
+   ```bash
+   hunch daemon status
+   ```
+
+2. If not running, start it:
+   ```bash
+   hunch daemon start
+   ```
+
+3. Verify shell integration is loaded:
+   ```bash
+   hunch doctor
+   ```
+
+4. Check that your rc file sources the hunch integration script.
+
+### Daemon won't start
+
+1. Check for stale socket file:
+   ```bash
+   ls -la ~/.cache/hunch.sock
+   ```
+
+2. Remove it if the daemon isn't running:
+   ```bash
+   rm ~/.cache/hunch.sock
+   hunch daemon start
+   ```
+
+3. Check the log file for errors:
+   ```bash
+   tail -f ~/.local/share/hunch/hunch.log
+   ```
+
+### `hunch: command not found`
+
+The binary isn't on your PATH. Either:
+```bash
+# Install globally
+go install github.com/DerekCorniello/hunch@latest
+
+# Or add to PATH
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+### Predictions are wrong or not useful
+
+- Hunch needs time to learn your patterns. Run `hunch import-history` to jump-start from your shell history.
+- Check the graph size: `hunch stats`
+- Reset and start fresh: `hunch reset`
+
+### Shell integration conflicts
+
+If you use `zsh-autosuggestions` or similar plugins, Hunch uses the `zle-line-pre-redraw` hook which should compose correctly. If you see issues, ensure Hunch is sourced **after** other plugins in your rc file.
+
+### Windows-specific issues
+
+- Exclude `%LocalAppData%\hunch\` from Windows Defender real-time scanning to avoid SQLite lock contention.
+- Ensure you're using Windows 10 version 1803 or later for Unix domain socket support.
+
+### Getting more help
+
+Run `hunch doctor` for a comprehensive health check, or check the logs at `~/.local/share/hunch/hunch.log`.
 
 ---
 

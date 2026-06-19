@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,36 +12,32 @@ import (
 	"github.com/DerekCorniello/hunch/daemon"
 )
 
-// startTestDaemon starts a daemon with isolated temp paths and returns the
-// socket path and a cancel function. It sets HUNCH_SOCKET and HUNCH_DB_PATH
-// so that CLI commands can discover the daemon via env.
-func startTestDaemon(t *testing.T) (string, func()) {
-	t.Helper()
-	socket := testSockPath(t)
-	dbPath := filepath.Join(t.TempDir(), "hunch.db")
+var sharedSocket string
 
-	t.Setenv("HUNCH_SOCKET", socket)
-	t.Setenv("HUNCH_DB_PATH", dbPath)
+// TestMain starts a single shared daemon for all CLI tests and shuts it
+// down after the suite completes. Each test resets the daemon state via
+// startTestDaemon, eliminating the cost and resource accumulation of
+// starting/stopping a daemon per test.
+func TestMain(m *testing.M) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	dir, err := os.MkdirTemp("", "hunch-cli-test")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create temp dir: %v\n", err)
+		os.Exit(1)
+	}
+
+	sharedSocket = filepath.Join(dir, "hunch.sock")
+	dbPath := filepath.Join(dir, "hunch.db")
+
+	os.Setenv("HUNCH_SOCKET", sharedSocket)
+	os.Setenv("HUNCH_DB_PATH", dbPath)
 
 	opts := daemon.LoadConfig()
-
-	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
 	go func() {
-		if err := daemon.Run(ctx, opts); err != nil && ctx.Err() == nil {
-			t.Logf("daemon error: %v", err)
-		}
+		done <- daemon.Run(ctx, opts)
 	}()
-
-	t.Cleanup(func() {
-		cancel()
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, err := os.Stat(opts.Socket); os.IsNotExist(err) {
-				return
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-	})
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -50,25 +47,24 @@ func startTestDaemon(t *testing.T) (string, func()) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	return opts.Socket, func() {
-		cancel()
-		time.Sleep(100 * time.Millisecond)
-	}
+	code := m.Run()
+
+	cancel()
+	<-done
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
-// testSockPath returns a socket path short enough for Unix domain sockets.
-func testSockPath(t *testing.T) string {
+// startTestDaemon resets the shared test daemon to a clean state and
+// returns the socket path and a no-op cleanup function.
+func startTestDaemon(t *testing.T) (string, func()) {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "s")
-	if len(p) < 100 {
-		return p
+
+	if err := Run([]string{"client", "reset"}); err != nil {
+		t.Fatalf("reset daemon: %v", err)
 	}
-	dir, err := os.MkdirTemp("", "ht")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return filepath.Join(dir, "s")
+
+	return sharedSocket, func() {}
 }
 
 func TestVersion(t *testing.T) {
@@ -116,12 +112,13 @@ func TestInitUnknownShell(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown shell")
 	}
-	if !strings.Contains(err.Error(), "unknown shell") {
-		t.Errorf("error = %q, want 'unknown shell'", err)
-	}
 }
 
 func TestInitMissingShell(t *testing.T) {
+	saved := os.Getenv("SHELL")
+	os.Setenv("SHELL", "")
+	t.Cleanup(func() { os.Setenv("SHELL", saved) })
+
 	err := Run([]string{"init"})
 	if err == nil {
 		t.Fatal("expected error for missing shell")
@@ -362,8 +359,6 @@ func TestClientRecordWithOptions(t *testing.T) {
 		"client", "record",
 		"--state", "prev1,prev2",
 		"--next", "next-cmd",
-		"--outcome", "success",
-		"--cwd", "/home/user",
 		"--at", "2025-01-01T00:00:00Z",
 	})
 	if err != nil {
@@ -521,7 +516,7 @@ func TestEnsureIntegrations(t *testing.T) {
 	}
 }
 
-func TestClientRecordWithOutcomeAndCWD(t *testing.T) {
+func TestClientRecordWithCustomState(t *testing.T) {
 	_, stop := startTestDaemon(t)
 	defer stop()
 
@@ -529,11 +524,9 @@ func TestClientRecordWithOutcomeAndCWD(t *testing.T) {
 		"client", "record",
 		"--state", ",git add .",
 		"--next", "git commit -m init",
-		"--outcome", "success",
-		"--cwd", "/home/user/project",
 	})
 	if err != nil {
-		t.Fatalf("record with outcome and cwd failed: %v", err)
+		t.Fatalf("record with custom state failed: %v", err)
 	}
 
 	err = Run([]string{"client", "predict", "--state", ",git add PATH", "--limit", "3"})

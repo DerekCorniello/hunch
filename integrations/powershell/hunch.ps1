@@ -10,9 +10,6 @@ if (-not (Get-Module -ListAvailable PSReadLine | Where-Object { $_.Version.Major
 }
 
 $HunchBin = if ($env:HUNCH_BIN) { $env:HUNCH_BIN } else { "hunch" }
-# Accept keys: right, end (set $env:_HUNCH_ACCEPT_KEYS env var to override)
-if (-not $env:_HUNCH_ACCEPT_KEYS) { $env:_HUNCH_ACCEPT_KEYS = "right,end" }
-
 $script:HunchPrev1 = ""
 $script:HunchPrev2 = ""
 $script:HunchSuggestion = ""
@@ -27,15 +24,12 @@ function Invoke-HunchRecord {
 
 	if ([string]::IsNullOrEmpty($Cmd)) { return }
 
-	$outcome = if ($ExitCode -eq 0) { "success" } else { "failure" }
 	$at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 	Start-Process -FilePath $HunchBin -ArgumentList @(
 		"client", "record",
 		"--state", "$script:HunchPrev1,$script:HunchPrev2",
 		"--next", $Cmd,
-		"--outcome", $outcome,
-		"--cwd", (Get-Location).Path,
 		"--at", $at
 	) -WindowStyle Hidden -RedirectStandardOutput $null -RedirectStandardError $null
 

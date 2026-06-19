@@ -8,19 +8,18 @@ import (
 
 // Request is a parsed IPC request.
 type Request struct {
-	Op      string   `json:"op"`
-	State   []string `json:"state,omitempty"`
-	Next    string   `json:"next,omitempty"`
-	Outcome string   `json:"outcome,omitempty"`
-	CWD     string   `json:"cwd,omitempty"`
-	At      string   `json:"at,omitempty"`
-	Prefix  string   `json:"prefix,omitempty"`
-	Limit   int      `json:"limit,omitempty"`
+	Op     string   `json:"op"`
+	State  []string `json:"state,omitempty"`
+	Next   string   `json:"next,omitempty"`
+	At     string   `json:"at,omitempty"`
+	Prefix string   `json:"prefix,omitempty"`
+	Limit  int      `json:"limit,omitempty"`
 }
 
 // SuggestionJSON is the JSON shape for a single suggestion in a predict response.
 type SuggestionJSON struct {
 	Template string  `json:"template"`
+	Raw      string  `json:"raw,omitempty"`
 	Score    float64 `json:"score"`
 	Count    int     `json:"count"`
 }

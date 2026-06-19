@@ -1,9 +1,4 @@
 _HUNCH_BIN=${HUNCH_BIN:-hunch}
-# Accept key: tab (set _HUNCH_ACCEPT_KEYS env var to override)
-if [[ -z "${_HUNCH_ACCEPT_KEYS:-}" ]]; then
-	_HUNCH_ACCEPT_KEYS=tab
-fi
-
 _HUNCH_PREV1=""
 _HUNCH_PREV2=""
 _HUNCH_SUGGESTION=""
@@ -21,14 +16,9 @@ _hunch_record() {
 	cmd=$(history 1 | sed 's/^ *[0-9]* *//')
 	[[ -z "$cmd" ]] && return
 
-	local outcome="success"
-	[[ $exit_code -ne 0 ]] && outcome="failure"
-
 	"$_HUNCH_BIN" client record \
 		--state "$_HUNCH_PREV1,$_HUNCH_PREV2" \
 		--next "$cmd" \
-		--outcome "$outcome" \
-		--cwd "$PWD" \
 		--at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 		>/dev/null 2>&1 &
 	disown

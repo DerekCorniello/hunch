@@ -41,12 +41,14 @@ type State struct {
 
 // Suggestion is a predicted next command.
 //
-// Template is the normalized form (the graph key). Score is a
-// relative ranking in [0, 1]; callers should treat it as a
-// comparison value, not a probability. Count is the number of
-// observed transitions that produced this suggestion.
+// Template is the normalized form (the graph key). Raw is the most
+// common raw command observed for this template under the queried state.
+// Score is a relative ranking in [0, 1]; callers should treat it as a
+// comparison value, not a probability. Count is the number of observed
+// transitions that produced this suggestion.
 type Suggestion struct {
 	Template string
+	Raw      string
 	Score    float64
 	Count    int
 }

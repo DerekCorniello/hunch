@@ -90,8 +90,6 @@ func cmdClientRecord(args []string) error {
 	fs := flag.NewFlagSet("hunch client record", flag.ContinueOnError)
 	stateStr := fs.String("state", "", "comma-separated list of state templates")
 	next := fs.String("next", "", "the template that followed")
-	outcome := fs.String("outcome", "", "success or failure")
-	cwd := fs.String("cwd", "", "working directory")
 	at := fs.String("at", "", "RFC 3339 timestamp")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -105,12 +103,6 @@ func cmdClientRecord(args []string) error {
 		Op:    "record",
 		State: splitState(*stateStr),
 		Next:  *next,
-	}
-	if *outcome != "" {
-		req.Outcome = *outcome
-	}
-	if *cwd != "" {
-		req.CWD = *cwd
 	}
 	if *at != "" {
 		req.At = *at
@@ -135,6 +127,7 @@ func cmdClientPredict(args []string) error {
 	limit := fs.Int("limit", 3, "max suggestions to return")
 	at := fs.String("at", "", "RFC 3339 timestamp")
 	templateOnly := fs.Bool("template", false, "output only the first template string (no JSON)")
+	rawOnly := fs.Bool("raw", false, "output only the first raw command string (no JSON)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -157,7 +150,7 @@ func cmdClientPredict(args []string) error {
 	}
 
 	if len(resp.Suggestions) == 0 {
-		if *templateOnly {
+		if *templateOnly || *rawOnly {
 			return nil
 		}
 		fmt.Println("[]")
@@ -166,6 +159,14 @@ func cmdClientPredict(args []string) error {
 
 	if *templateOnly {
 		fmt.Println(resp.Suggestions[0].Template)
+		return nil
+	}
+	if *rawOnly {
+		raw := resp.Suggestions[0].Raw
+		if raw == "" {
+			raw = resp.Suggestions[0].Template
+		}
+		fmt.Println(raw)
 		return nil
 	}
 

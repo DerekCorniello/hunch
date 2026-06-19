@@ -27,13 +27,15 @@ func (l *unixLocker) Unlock() error {
 }
 
 func (l *unixLocker) Close() error {
-	syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	if err := l.Unlock(); err != nil {
+		return fmt.Errorf("unlock lock file: %w", err)
+	}
 	return l.f.Close()
 }
 
 // OpenLock opens or creates the lock file at path and returns a Locker.
 func OpenLock(path string) (Locker, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}

@@ -105,7 +105,7 @@ func ensureDaemonRunning() error {
 		conn.Close()
 		return nil
 	}
-	return errors.New("daemon is not running; run hunch daemon start first")
+	return cmdDaemonStart()
 }
 
 func runImport(shell, path string, threads int, progress func(string)) error {
@@ -144,6 +144,12 @@ func runImport(shell, path string, threads int, progress func(string)) error {
 	if err := sendSeed(transitions); err != nil {
 		return fmt.Errorf("import to daemon: %w", err)
 	}
+
+	rawExamples := buildRawMappings(rawCmds, normalized)
+	if err := sendRawExamples(rawExamples); err != nil {
+		return fmt.Errorf("send raw examples to daemon: %w", err)
+	}
+
 	progress("imported.\n")
 	return nil
 }
@@ -217,6 +223,52 @@ func sendSeed(transitions []graph.Transition) error {
 	req := ipc.Request{
 		Op:   "import",
 		Next: tmpFile.Name(),
+	}
+	_, err = sendRequest(req)
+	return err
+}
+
+func buildRawMappings(rawCmds, normalized []string) map[string]map[string]int {
+	m := make(map[string]map[string]int)
+	for i, tmpl := range normalized {
+		if tmpl == "" || rawCmds[i] == "" {
+			continue
+		}
+		inner, ok := m[tmpl]
+		if !ok {
+			inner = make(map[string]int)
+			m[tmpl] = inner
+		}
+		inner[rawCmds[i]]++
+	}
+	return m
+}
+
+func sendRawExamples(examples map[string]map[string]int) error {
+	type example struct {
+		Template string `json:"template"`
+		Raw      string `json:"raw"`
+		Count    int    `json:"count"`
+	}
+	var list []example
+	for tmpl, inner := range examples {
+		for raw, count := range inner {
+			list = append(list, example{
+				Template: tmpl,
+				Raw:      raw,
+				Count:    count,
+			})
+		}
+	}
+
+	data, err := json.Marshal(list)
+	if err != nil {
+		return fmt.Errorf("marshal raw examples: %w", err)
+	}
+
+	req := ipc.Request{
+		Op:   "record_raws",
+		Next: string(data),
 	}
 	_, err = sendRequest(req)
 	return err

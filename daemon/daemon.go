@@ -21,6 +21,8 @@ import (
 	"github.com/DerekCorniello/hunch/ipc"
 )
 
+const maxRequestSize = 1 << 20 // 1 MB limit for IPC requests
+
 const (
 	flushThreshold = 50
 	flushInterval  = 5 * time.Second
@@ -33,6 +35,9 @@ type daemon struct {
 	st       *store
 	log      *slog.Logger
 	parents  []string // cached result of MergeParents
+
+	rawMap   map[string]map[string]int // template → raw → count
+	rawMu    sync.RWMutex
 
 	lock     Locker
 	listener net.Listener
@@ -55,6 +60,7 @@ func Run(ctx context.Context, opts Options) error {
 		log:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel(opts.LogLevel)})),
 		flushCh: make(chan struct{}, 1),
 		parents: normalize.MergeParents(opts.ExtraParents),
+		rawMap:  make(map[string]map[string]int),
 	}
 	d.g.Store(graph.New(2))
 
@@ -106,7 +112,7 @@ func (d *daemon) start(ctx context.Context) error {
 
 	// Write PID file.
 	pid := os.Getpid()
-	if err := os.WriteFile(d.pidPath, []byte(strconv.Itoa(pid)), 0644); err != nil {
+	if err := os.WriteFile(d.pidPath, []byte(strconv.Itoa(pid)), 0600); err != nil {
 		return fmt.Errorf("write pid: %w", err)
 	}
 
@@ -125,6 +131,12 @@ func (d *daemon) start(ctx context.Context) error {
 		return fmt.Errorf("merge loaded transitions: %w", err)
 	}
 
+	rawExamples, err := st.loadRawExamples()
+	if err != nil {
+		return fmt.Errorf("load raw examples: %w", err)
+	}
+	d.rawMap = rawExamples
+
 	// Seed import on first run.
 	if d.opts.SeedPath != "" && len(transitions) == 0 {
 		if err := d.importSeed(d.opts.SeedPath); err != nil {
@@ -138,10 +150,15 @@ func (d *daemon) start(ctx context.Context) error {
 	// Start flush loop.
 	go d.flushLoop(ctx)
 
-	// Start IPC listener.
+	// Start IPC listener — clean stale socket first.
+	os.Remove(d.sockPath)
 	listener, err := net.Listen("unix", d.sockPath)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
+	}
+	if err := os.Chmod(d.sockPath, 0700); err != nil {
+		listener.Close()
+		return fmt.Errorf("set socket permissions: %w", err)
 	}
 	d.listener = listener
 
@@ -203,6 +220,9 @@ func (d *daemon) recoverStaleLock() error {
 }
 
 func (d *daemon) acceptLoop(ctx context.Context) {
+	backoff := 10 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+
 	for {
 		conn, err := d.listener.Accept()
 		if err != nil {
@@ -210,14 +230,27 @@ func (d *daemon) acceptLoop(ctx context.Context) {
 				return
 			}
 			d.log.Error("accept error", "error", err)
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 			continue
 		}
+		backoff = 10 * time.Millisecond
 		go d.handleConn(conn)
 	}
 }
 
 func (d *daemon) handleConn(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			d.log.Error("panic handling connection", "recover", r)
+		}
+		conn.Close()
+	}()
+
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	req, err := parseRequest(conn)
 	if err != nil {
@@ -225,10 +258,14 @@ func (d *daemon) handleConn(conn net.Conn) {
 		return
 	}
 
+	conn.SetDeadline(time.Now().Add(30 * time.Second))
+
 	switch req.Op {
 	case "record":
+		d.log.Debug("record", "state", req.State, "next", req.Next)
 		d.handleRecord(conn, req)
 	case "predict":
+		d.log.Debug("predict", "state", req.State, "prefix", req.Prefix)
 		d.handlePredict(conn, req)
 	case "reset":
 		d.handleReset(conn)
@@ -242,6 +279,8 @@ func (d *daemon) handleConn(conn net.Conn) {
 		d.handleConfig(conn)
 	case "import":
 		d.handleImport(conn, req)
+	case "record_raws":
+		d.handleRecordRaws(conn, req)
 	default:
 		writeError(conn, fmt.Sprintf("unknown op: %s", req.Op))
 	}
@@ -265,7 +304,19 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	normalizedNext := normalize.Normalize(req.Next, d.parents)
 
 	d.g.Load().Record(normalizedState, normalizedNext, at)
+
+	d.rawMu.Lock()
+	inner, ok := d.rawMap[normalizedNext]
+	if !ok {
+		inner = make(map[string]int)
+		d.rawMap[normalizedNext] = inner
+	}
+	inner[req.Next]++
+	d.rawMu.Unlock()
+
+	d.flushMu.Lock()
 	d.dirty.Add(1)
+	d.flushMu.Unlock()
 
 	if d.dirty.Load() >= flushThreshold {
 		select {
@@ -273,6 +324,31 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 		default:
 		}
 	}
+
+	writeOK(conn)
+}
+
+func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
+	var examples []struct {
+		Template string `json:"template"`
+		Raw      string `json:"raw"`
+		Count    int    `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(req.Next), &examples); err != nil {
+		writeError(conn, fmt.Sprintf("bad examples: %v", err))
+		return
+	}
+
+	d.rawMu.Lock()
+	for _, ex := range examples {
+		inner, ok := d.rawMap[ex.Template]
+		if !ok {
+			inner = make(map[string]int)
+			d.rawMap[ex.Template] = inner
+		}
+		inner[ex.Raw] += ex.Count
+	}
+	d.rawMu.Unlock()
 
 	writeOK(conn)
 }
@@ -288,8 +364,8 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	}
 
 	prev := make([]types.Command, len(req.State))
-	for i, tmpl := range req.State {
-		prev[i] = types.Command{Template: tmpl}
+	for i, raw := range req.State {
+		prev[i] = types.Command{Template: normalize.Normalize(raw, d.parents)}
 	}
 
 	st := types.State{Previous: prev}
@@ -301,38 +377,73 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 		suggestions = filterByPrefix(suggestions, req.Prefix)
 	}
 
-	if req.Limit > 0 && len(suggestions) > req.Limit {
-		suggestions = suggestions[:req.Limit]
+	limit := req.Limit
+	if limit < 0 {
+		limit = 0
 	}
+	if limit > 0 && len(suggestions) > limit {
+		suggestions = suggestions[:limit]
+	}
+
+	// Fill in raw commands from the raw mapping.
+	d.rawMu.RLock()
+	for i, s := range suggestions {
+		bestRaw := ""
+		bestCount := 0
+		if inner, ok := d.rawMap[s.Template]; ok {
+			for raw, count := range inner {
+				if count > bestCount {
+					bestCount = count
+					bestRaw = raw
+				}
+			}
+		}
+		suggestions[i].Raw = bestRaw
+	}
+	d.rawMu.RUnlock()
 
 	writeSuggestions(conn, suggestions)
 }
 
 func (d *daemon) handleReset(conn net.Conn) {
 	d.flushMu.Lock()
-	d.flushDB()
 	newG := graph.New(2)
 	d.g.Store(newG)
 	d.pred.Store(predict.New(newG, d.opts.HalfLife(), d.opts.Alpha))
 	if err := d.st.clear(); err != nil {
 		d.log.Error("clear store", "error", err)
 	}
+	d.rawMu.Lock()
+	d.rawMap = make(map[string]map[string]int)
+	d.rawMu.Unlock()
 	d.dirty.Store(0)
 	d.flushMu.Unlock()
 
 	writeOK(conn)
 }
 
-// flushDB persists the current graph to the database.
-// flushMu must be held by the caller.
-func (d *daemon) flushDB() {
+// flushDB persists the current graph and raw examples to the database.
+// flushMu must be held by the caller. Returns true on success.
+func (d *daemon) flushDB() bool {
 	all := d.g.Load().All()
 	if len(all) == 0 {
-		return
+		return true
 	}
 	if err := d.st.save(all); err != nil {
 		d.log.Error("flush failed", "error", err)
+		return false
 	}
+
+	d.rawMu.RLock()
+	rawMap := d.rawMap
+	d.rawMu.RUnlock()
+	if len(rawMap) > 0 {
+		if err := d.st.saveRawExamples(rawMap); err != nil {
+			d.log.Error("flush raw examples failed", "error", err)
+		}
+	}
+
+	return true
 }
 
 func (d *daemon) handleExport(conn net.Conn) {
@@ -360,6 +471,10 @@ func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
 	raw := req.Next
 	if raw == "" && len(req.State) > 0 {
 		raw = req.State[len(req.State)-1]
+	}
+	if raw == "" {
+		writeError(conn, "no input to normalize")
+		return
 	}
 	template := normalize.Normalize(raw, d.parents)
 	resp := ipc.NormalizeResponse{
@@ -394,7 +509,27 @@ func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
 		writeError(conn, "import path required")
 		return
 	}
-	if err := d.importSeed(req.Next); err != nil {
+	// Only allow regular files (no device files, FIFOs, etc.). No path
+	// traversal either — seed files should be under the data directory.
+	p, err := filepath.Abs(req.Next)
+	if err != nil {
+		writeError(conn, fmt.Sprintf("bad path: %v", err))
+		return
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeError(conn, "file not found")
+		} else {
+			writeError(conn, fmt.Sprintf("stat: %v", err))
+		}
+		return
+	}
+	if !fi.Mode().IsRegular() {
+		writeError(conn, "not a regular file")
+		return
+	}
+	if err := d.importSeed(p); err != nil {
 		writeError(conn, fmt.Sprintf("import failed: %v", err))
 		return
 	}
@@ -425,15 +560,17 @@ func (d *daemon) flush() {
 	d.flushMu.Lock()
 	defer d.flushMu.Unlock()
 
-	d.flushDB()
+	ok := d.flushDB()
 
-	// Atomically clear dirty. Any records that arrived during the save
-	// (incrementing dirty) are in the graph but not yet persisted.
-	// If dirty was > 0 at swap time, schedule an immediate re-flush.
-	if d.dirty.Swap(0) > 0 {
-		select {
-		case d.flushCh <- struct{}{}:
-		default:
+	if ok {
+		// Only clear dirty if the save succeeded. Records that arrived
+		// during the save (incrementing dirty) are in the graph but not
+		// yet persisted. If dirty was > 0 at swap time, schedule a re-flush.
+		if d.dirty.Swap(0) > 0 {
+			select {
+			case d.flushCh <- struct{}{}:
+			default:
+			}
 		}
 	}
 	d.log.Debug("flushed")
@@ -453,6 +590,9 @@ func (d *daemon) importSeed(path string) error {
 	if err := d.g.Load().Merge(seed.Transitions); err != nil {
 		return fmt.Errorf("merge seed: %w", err)
 	}
+
+	// Persist imported transitions immediately so nothing is lost on crash.
+	d.flush()
 
 	d.log.Info("seed imported", "source", seed.Source, "transitions", len(seed.Transitions))
 	return nil

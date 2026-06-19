@@ -22,6 +22,8 @@ func openStore(path string) (*store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		db.Close()
@@ -49,6 +51,17 @@ func openStore(path string) (*store, error) {
 	`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create index: %w", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS raw_examples (
+			template TEXT NOT NULL,
+			raw      TEXT NOT NULL,
+			count    INTEGER NOT NULL,
+			PRIMARY KEY (template, raw)
+		)
+	`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create raw_examples table: %w", err)
 	}
 
 	return &store{db: db}, nil
@@ -120,10 +133,75 @@ func (s *store) save(transitions []graph.Transition) error {
 	return nil
 }
 
-// clear deletes all transitions from the database.
+// clear deletes all transitions and raw examples from the database.
 func (s *store) clear() error {
 	_, err := s.db.Exec(`DELETE FROM transitions`)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`DELETE FROM raw_examples`)
 	return err
+}
+
+// loadRawExamples reads every template→raw mapping from the database.
+func (s *store) loadRawExamples() (map[string]map[string]int, error) {
+	rows, err := s.db.Query(`SELECT template, raw, count FROM raw_examples`)
+	if err != nil {
+		return nil, fmt.Errorf("query raw_examples: %w", err)
+	}
+	defer rows.Close()
+
+	m := make(map[string]map[string]int)
+	for rows.Next() {
+		var tmpl, raw string
+		var count int
+		if err := rows.Scan(&tmpl, &raw, &count); err != nil {
+			return nil, fmt.Errorf("scan raw_example: %w", err)
+		}
+		inner, ok := m[tmpl]
+		if !ok {
+			inner = make(map[string]int)
+			m[tmpl] = inner
+		}
+		inner[raw] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate raw_examples: %w", err)
+	}
+	return m, nil
+}
+
+// saveRawExamples upserts a batch of template→raw mappings.
+func (s *store) saveRawExamples(examples map[string]map[string]int) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO raw_examples (template, raw, count)
+		VALUES (?, ?, ?)
+		ON CONFLICT(template, raw) DO UPDATE SET
+			count = excluded.count
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare upsert: %w", err)
+	}
+	defer stmt.Close()
+
+	for tmpl, inner := range examples {
+		for raw, count := range inner {
+			if _, err := stmt.Exec(tmpl, raw, count); err != nil {
+				return fmt.Errorf("exec upsert: %w", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
 }
 
 // close closes the database connection.

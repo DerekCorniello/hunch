@@ -79,7 +79,7 @@ Responsibilities:
 - Calls `core` to update graph + generate predictions
 - Caches recent state for fast access
 - Exposes local IPC (unix socket)
-- Supports `--seed <path>` to merge a pre-built transition graph on first run (e.g. community "workflow packs" or your own exported data)
+- Supports `hunch daemon run --seed <path>` to merge a pre-built transition graph on first run
 
 ---
 

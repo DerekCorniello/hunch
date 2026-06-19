@@ -1,11 +1,6 @@
 if not set -q HUNCH_BIN
 	set -g HUNCH_BIN hunch
 end
-# Accept keys: right, end (set _hunch_accept_keys env var to override)
-if not set -q _hunch_accept_keys
-	set -g _hunch_accept_keys right end
-end
-
 set -g _hunch_prev1 ""
 set -g _hunch_prev2 ""
 set -g _hunch_suggestion ""
@@ -22,14 +17,9 @@ function _hunch_record --on-event fish_postexec
 	set -l cmd $argv[1]
 	test -n "$cmd" || return
 
-	set -l outcome success
-	test $exit_code -eq 0 || set outcome failure
-
 	$HUNCH_BIN client record \
 		--state "$_hunch_prev1,$_hunch_prev2" \
 		--next "$cmd" \
-		--outcome "$outcome" \
-		--cwd "$PWD" \
 		--at (date -u +%Y-%m-%dT%H:%M:%SZ) \
 		>/dev/null 2>&1 &
 

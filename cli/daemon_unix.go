@@ -46,7 +46,15 @@ func cmdDaemonStart() error {
 	cmd.Stdin = nil
 
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return fmt.Errorf("start daemon: %w", err)
+	}
+
+	// Parent no longer needs the log file descriptor.
+	if logFile != nil {
+		logFile.Close()
 	}
 
 	if err := waitForSocket(opts.Socket, 2*time.Second); err != nil {

@@ -4,7 +4,7 @@ LDFLAGS := -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(VERSION)"
 
 BIN := hunch
 
-.PHONY: all build test test-race vet lint lint-shell clean install
+.PHONY: all build test test-race vet lint lint-shell clean install hooks check
 
 all: hooks build
 

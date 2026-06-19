@@ -15,7 +15,10 @@ import (
 // parseRequest reads one JSON object from conn and returns the parsed request.
 func parseRequest(conn net.Conn) (ipc.Request, error) {
 	var req ipc.Request
-	if err := json.NewDecoder(conn).Decode(&req); err != nil {
+	dec := json.NewDecoder(conn)
+	dec.DisallowUnknownFields()
+	dec.UseNumber()
+	if err := dec.Decode(&req); err != nil {
 		return req, fmt.Errorf("decode request: %w", err)
 	}
 	return req, nil
@@ -33,6 +36,7 @@ func writeSuggestions(conn net.Conn, suggestions []types.Suggestion) error {
 	for i, s := range suggestions {
 		sj[i] = ipc.SuggestionJSON{
 			Template: s.Template,
+			Raw:      s.Raw,
 			Score:    s.Score,
 			Count:    s.Count,
 		}

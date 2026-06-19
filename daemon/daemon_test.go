@@ -116,7 +116,7 @@ func TestDaemonRecordPredictRoundtrip(t *testing.T) {
 	conn = dial(t, socket)
 	writeJSON(t, conn, map[string]interface{}{
 		"op":    "predict",
-		"state": []string{"", "git add PATH"},
+		"state": []string{"", "git add ."},
 		"limit": 5,
 	})
 	var predResp struct {
@@ -694,8 +694,8 @@ func TestImportSeed(t *testing.T) {
 		if resp.Error == "" {
 			t.Fatal("expected error for nonexistent import path")
 		}
-		if !strings.Contains(resp.Error, "import failed") {
-			t.Errorf("error = %q, want 'import failed'", resp.Error)
+		if resp.Error != "file not found" {
+			t.Errorf("error = %q, want 'file not found'", resp.Error)
 		}
 	})
 
