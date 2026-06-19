@@ -8,7 +8,7 @@ _HUNCH_LAST_BUFFER=""
 
 _hunch_daemon_ensure() {
 	if ! "$_HUNCH_BIN" daemon status >/dev/null 2>&1; then
-		"$_HUNCH_BIN" daemon start >/dev/null 2>&1 &
+		"$_HUNCH_BIN" daemon start >/dev/null 2>&1 &!
 	fi
 }
 _hunch_daemon_ensure
@@ -27,8 +27,7 @@ _hunch_record() {
 		--outcome "$outcome" \
 		--cwd "$PWD" \
 		--at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		>/dev/null 2>&1 &
-	disown
+		>/dev/null 2>&1 &!
 
 	_HUNCH_PREV[1]=$_HUNCH_PREV[2]
 	_HUNCH_PREV[2]=$cmd
@@ -71,20 +70,7 @@ _hunch_accept_end() {
 	fi
 }
 
-# Save references to existing self-insert and backward-delete-char
-# widgets so we can chain through them without breaking other
-# frameworks (zsh-autosuggestions, zsh-syntax-highlighting, etc.).
-zle -A self-insert _hunch_orig_self_insert 2>/dev/null || true
-zle -A backward-delete-char _hunch_orig_backward_delete 2>/dev/null || true
-
-_hunch_self_insert() {
-	zle _hunch_orig_self_insert
-	_hunch_predict
-}
-
-_hunch_backward_delete() {
-	zle _hunch_orig_backward_delete
-	_HUNCH_LAST_BUFFER=""
+_hunch_line_pre_redraw() {
 	_hunch_predict
 }
 
@@ -94,10 +80,9 @@ _hunch_line_finish() {
 	_HUNCH_LAST_BUFFER=""
 }
 
-zle -N _hunch_self_insert
-zle -N _hunch_backward_delete
 zle -N _hunch_accept_or_forward
 zle -N _hunch_accept_end
+zle -N _hunch_line_pre_redraw
 zle -N zle-line-finish _hunch_line_finish
 
 bindkey '^[[C' _hunch_accept_or_forward
@@ -111,6 +96,3 @@ bindkey -M viins '^[[F' _hunch_accept_end
 
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd _hunch_record
-
-zle -N self-insert _hunch_self_insert
-zle -N backward-delete-char _hunch_backward_delete

@@ -39,7 +39,39 @@ func cmdInit(args []string) error {
 
 	fmt.Printf("Add this line to your ~/.%s, then restart your shell or run source ~/.%s:\n\n", rcFile(shell), rcFile(shell))
 	fmt.Printf("    source %s\n", integrationPath)
+
+	warnPath()
 	return nil
+}
+
+func warnPath() {
+	execPath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	execDir := filepath.Dir(execPath)
+	absDir, err := filepath.Abs(execDir)
+	if err != nil {
+		return
+	}
+
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		absPathDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		if absDir == absPathDir {
+			return
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "\nWarning: %s is not in your $PATH.\n", execPath)
+	fmt.Fprintf(os.Stderr, "You won't be able to run hunch directly in a new shell.\n")
+	fmt.Fprintf(os.Stderr, "\nTo fix, install it globally with:\n\n")
+	fmt.Fprintf(os.Stderr, "    go install github.com/DerekCorniello/hunch@latest\n")
+	fmt.Fprintf(os.Stderr, "\nOr add this directory to your $PATH:\n\n")
+	fmt.Fprintf(os.Stderr, "    export PATH=\"$PATH:%s\"\n", absDir)
+	fmt.Fprintln(os.Stderr)
 }
 
 func offerHistoryImport(shell string) {
