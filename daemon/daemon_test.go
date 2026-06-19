@@ -151,7 +151,11 @@ func TestDaemonPersistence(t *testing.T) {
 	opts.Socket = sockPath
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go Run(ctx, opts)
+	go func() {
+		if err := Run(ctx, opts); err != nil && ctx.Err() == nil {
+			t.Logf("daemon error: %v", err)
+		}
+	}()
 	waitForSocket(t, sockPath, 5*time.Second)
 
 	conn := dial(t, sockPath)
@@ -168,7 +172,11 @@ func TestDaemonPersistence(t *testing.T) {
 	time.Sleep(time.Second)
 
 	ctx2, cancel2 := context.WithCancel(context.Background())
-	go Run(ctx2, opts)
+	go func() {
+		if err := Run(ctx2, opts); err != nil && ctx2.Err() == nil {
+			t.Logf("daemon error: %v", err)
+		}
+	}()
 	waitForSocket(t, sockPath, 5*time.Second)
 
 	conn = dial(t, sockPath)
@@ -503,7 +511,11 @@ func TestDaemonStaleLockRecovery(t *testing.T) {
 	opts.DBPath = dbPath
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go Run(ctx, opts)
+	go func() {
+		if err := Run(ctx, opts); err != nil && ctx.Err() == nil {
+			t.Logf("daemon error: %v", err)
+		}
+	}()
 	waitForSocket(t, sockPath, 5*time.Second)
 
 	conn := dial(t, sockPath)
