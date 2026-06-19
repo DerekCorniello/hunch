@@ -31,13 +31,12 @@ jobs:
           $tmpdir = "${{ runner.temp }}\gotmp"
           New-Item -ItemType Directory -Force -Path $tmpdir | Out-Null
           $env:GOTMPDIR = $tmpdir
-          $exitCode = 0
-          go test ./cli/... -race -count=1 -timeout=120s
-          if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE }
-          go clean -cache 2>$null
-          go test ./ipc/... -race -count=1 -timeout=120s
-          if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE }
-          exit $exitCode
+          $cli = go test ./cli/... -race -count=1 -timeout=120s
+          $cli
+          if ($cli -match '\bFAIL\b') { exit 1 }
+          $ipc = go test ./ipc/... -race -count=1 -timeout=120s
+          $ipc
+          if ($ipc -match '\bFAIL\b') { exit 1 }
       - run: go test -coverprofile=/tmp/c.out ./core/... ./ipc/...
         if: matrix.os == 'ubuntu-latest'
 
