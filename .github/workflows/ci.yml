@@ -22,14 +22,15 @@ jobs:
       - run: go vet ./...
       - run: go test ./core/... -race -count=1 -timeout=120s
       - run: go test ./daemon/... -race -count=1 -timeout=120s
-        env:
-          GOTMPDIR: ${{ runner.temp }}/gotmp
       - run: go test ./cli/... ./ipc/... -race -count=1 -timeout=120s
         if: matrix.os != 'windows-latest'
       - name: CLI + IPC tests (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          $tmpdir = "${{ runner.temp }}\gotmp"
+          New-Item -ItemType Directory -Force -Path $tmpdir | Out-Null
+          $env:GOTMPDIR = $tmpdir
           $exitCode = 0
           go test ./cli/... -race -count=1 -timeout=120s
           if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE }
@@ -37,8 +38,6 @@ jobs:
           go test ./ipc/... -race -count=1 -timeout=120s
           if ($LASTEXITCODE -ne 0) { $exitCode = $LASTEXITCODE }
           exit $exitCode
-        env:
-          GOTMPDIR: ${{ runner.temp }}/gotmp
       - run: go test -coverprofile=/tmp/c.out ./core/... ./ipc/...
         if: matrix.os == 'ubuntu-latest'
 

@@ -417,7 +417,7 @@ func (d *daemon) handleReset(conn net.Conn) {
 	d.dirty.Store(0)
 	d.flushMu.Unlock()
 
-	writeOK(conn)
+	_ = writeOK(conn)
 }
 
 // flushDB persists the current graph and raw examples to the database.
@@ -446,7 +446,7 @@ func (d *daemon) flushDB() bool {
 
 func (d *daemon) handleExport(conn net.Conn) {
 	all := d.g.Load().All()
-	writeTransitions(conn, all)
+	_ = writeTransitions(conn, all)
 }
 
 func (d *daemon) handleStats(conn net.Conn) {
@@ -532,7 +532,7 @@ func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
 		return
 	}
 	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha))
-	writeOK(conn)
+	_ = writeOK(conn)
 }
 
 // flushLoop periodically flushes the in-memory graph to SQLite.
