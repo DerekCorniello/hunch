@@ -323,7 +323,7 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 		}
 	}
 
-	writeOK(conn)
+	_ = writeOK(conn)
 }
 
 func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
@@ -348,7 +348,7 @@ func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
 	}
 	d.rawMu.Unlock()
 
-	writeOK(conn)
+	_ = writeOK(conn)
 }
 
 func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
@@ -400,7 +400,7 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	}
 	d.rawMu.RUnlock()
 
-	writeSuggestions(conn, suggestions)
+	_ = writeSuggestions(conn, suggestions)
 }
 
 func (d *daemon) handleReset(conn net.Conn) {

@@ -165,7 +165,7 @@ func TestDaemonPersistence(t *testing.T) {
 	conn.Close()
 
 	cancel()
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(time.Second)
 
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	go Run(ctx2, opts)
@@ -421,27 +421,46 @@ func TestDaemonMalformedJSON(t *testing.T) {
 func TestDaemonConcurrentRecords(t *testing.T) {
 	_, _, socket := startDaemon(t, LoadConfig())
 
-	var wg sync.WaitGroup
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		errs  []error
+	)
 	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			conn, err := net.Dial("unix", socket)
+			conn, err := net.DialTimeout("unix", socket, 5*time.Second)
 			if err != nil {
-				t.Error(err)
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
 				return
 			}
 			defer conn.Close()
-			writeJSON(t, conn, map[string]interface{}{
+			if err := json.NewEncoder(conn).Encode(map[string]interface{}{
 				"op":    "record",
 				"state": []string{"", "cmd"},
 				"next":  "next",
-			})
+			}); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				return
+			}
 			var resp map[string]interface{}
-			readJSON(t, conn, &resp)
+			if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				return
+			}
 		}()
 	}
 	wg.Wait()
+	if len(errs) > 0 {
+		t.Fatalf("concurrent records: %v", errs[0])
+	}
 
 	conn := dial(t, socket)
 	writeJSON(t, conn, map[string]interface{}{

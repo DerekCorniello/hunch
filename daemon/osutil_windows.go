@@ -78,7 +78,7 @@ func OpenLock(path string) (Locker, error) {
 func processExists(pid int) (bool, error) {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION, false, uint32(pid))
 	if err != nil {
-		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) || errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 			return false, nil
 		}
 		return false, err

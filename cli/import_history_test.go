@@ -296,7 +296,7 @@ func TestCountLines(t *testing.T) {
 
 	t.Run("multiple_lines", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "lines")
-		os.WriteFile(path, []byte("a\nb\nc\n"), 0644)
+		_ = os.WriteFile(path, []byte("a\nb\nc\n"), 0644)
 		if n := countLines(path); n != 3 {
 			t.Errorf("countLines = %d, want 3", n)
 		}
@@ -304,7 +304,7 @@ func TestCountLines(t *testing.T) {
 
 	t.Run("no_trailing_newline", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "notrailing")
-		os.WriteFile(path, []byte("a\nb"), 0644)
+		_ = os.WriteFile(path, []byte("a\nb"), 0644)
 		if n := countLines(path); n != 2 {
 			t.Errorf("countLines = %d, want 2", n)
 		}
