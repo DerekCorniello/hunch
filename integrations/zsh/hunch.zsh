@@ -4,6 +4,7 @@ _HUNCH_PREV=("" "")
 _HUNCH_SUGGESTION=""
 _HUNCH_LAST_BUFFER=""
 _HUNCH_LAST_POSTDISPLAY=""
+_HUNCH_LAST_SUGGESTION=""
 _HUNCH_HIGHLIGHT_STYLE=${HUNCH_HIGHLIGHT_STYLE:-fg=245}
 
 _hunch_daemon_ensure() {
@@ -28,6 +29,14 @@ _hunch_record() {
 }
 
 _hunch_predict() {
+	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
+
+	if [[ -n "$_HUNCH_LAST_SUGGESTION" && "$BUFFER" == "$_HUNCH_LAST_SUGGESTION" ]]; then
+		POSTDISPLAY=""
+		_HUNCH_LAST_POSTDISPLAY=""
+		return
+	fi
+
 	if [[ -z "$BUFFER" ]]; then
 		local suggestion
 		suggestion=$("$_HUNCH_BIN" client predict \
@@ -35,14 +44,15 @@ _hunch_predict() {
 			--limit 1 \
 			--raw 2>/dev/null)
 
-		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 		if [[ -n "$suggestion" ]]; then
 			POSTDISPLAY="$suggestion"
 			_HUNCH_LAST_POSTDISPLAY="$POSTDISPLAY"
+			_HUNCH_LAST_SUGGESTION="$suggestion"
 			region_highlight+=("$CURSOR $((CURSOR + $#suggestion)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
 		else
 			POSTDISPLAY=""
 			_HUNCH_LAST_POSTDISPLAY=""
+			_HUNCH_LAST_SUGGESTION=""
 		fi
 		return
 	fi
@@ -59,15 +69,16 @@ _hunch_predict() {
 		--limit 1 \
 		--raw 2>/dev/null)
 
-	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 	if [[ -n "$suggestion" && "$suggestion" != "$BUFFER" ]]; then
 		local suffix="${suggestion#$BUFFER}"
 		POSTDISPLAY="$suffix"
 		_HUNCH_LAST_POSTDISPLAY="$POSTDISPLAY"
+		_HUNCH_LAST_SUGGESTION="$suggestion"
 		region_highlight+=("$CURSOR $((CURSOR + $#suffix)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
 	else
 		POSTDISPLAY=""
 		_HUNCH_LAST_POSTDISPLAY=""
+		_HUNCH_LAST_SUGGESTION=""
 	fi
 }
 
@@ -79,6 +90,7 @@ _hunch_accept_or_forward() {
 		POSTDISPLAY=""
 		_HUNCH_LAST_BUFFER=""
 		_HUNCH_LAST_POSTDISPLAY=""
+		_HUNCH_LAST_SUGGESTION=""
 		if (( $+functions[_zsh_highlight] )); then
 			_zsh_highlight
 		fi
@@ -95,6 +107,7 @@ _hunch_accept_end() {
 		POSTDISPLAY=""
 		_HUNCH_LAST_BUFFER=""
 		_HUNCH_LAST_POSTDISPLAY=""
+		_HUNCH_LAST_SUGGESTION=""
 		if (( $+functions[_zsh_highlight] )); then
 			_zsh_highlight
 		fi
@@ -107,6 +120,7 @@ _hunch_line_finish() {
 	_HUNCH_SUGGESTION=""
 	_HUNCH_LAST_BUFFER=""
 	_HUNCH_LAST_POSTDISPLAY=""
+	_HUNCH_LAST_SUGGESTION=""
 }
 
 zle -N _hunch_accept_or_forward
