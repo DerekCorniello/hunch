@@ -63,9 +63,7 @@ func (l *windowsLocker) Unlock() error {
 }
 
 func (l *windowsLocker) Close() error {
-	if err := l.Unlock(); err != nil {
-		return fmt.Errorf("unlock lock file: %w", err)
-	}
+	l.Unlock()
 	return l.f.Close()
 }
 

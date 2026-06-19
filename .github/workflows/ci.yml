@@ -31,9 +31,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      - run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - run: golangci-lint run ./...
 
   cross-compile:
     runs-on: ubuntu-latest

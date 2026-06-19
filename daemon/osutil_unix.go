@@ -27,9 +27,7 @@ func (l *unixLocker) Unlock() error {
 }
 
 func (l *unixLocker) Close() error {
-	if err := l.Unlock(); err != nil {
-		return fmt.Errorf("unlock lock file: %w", err)
-	}
+	l.Unlock()
 	return l.f.Close()
 }
 
