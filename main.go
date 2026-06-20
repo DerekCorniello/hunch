@@ -13,7 +13,12 @@ import (
 var embeddedIntegrations embed.FS
 
 func main() {
-	cli.IntegrationFS, _ = fs.Sub(embeddedIntegrations, "integrations")
+	sub, err := fs.Sub(embeddedIntegrations, "integrations")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "embedded integrations: %v\n", err)
+		os.Exit(1)
+	}
+	cli.IntegrationFS = sub
 	if err := cli.Run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

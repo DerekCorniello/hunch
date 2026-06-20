@@ -507,20 +507,23 @@ func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
 		_ = writeError(conn, "import path required")
 		return
 	}
-	// Only allow regular files (no device files, FIFOs, etc.). No path
-	// traversal either — seed files should be under the data directory.
 	p, err := filepath.Abs(req.Next)
 	if err != nil {
 		_ = writeError(conn, fmt.Sprintf("bad path: %v", err))
 		return
 	}
-	fi, err := os.Stat(p)
+	// Use Lstat (not Stat) so we can detect symlinks before following them.
+	fi, err := os.Lstat(p)
 	if err != nil {
 		if os.IsNotExist(err) {
 			_ = writeError(conn, "file not found")
 		} else {
 			_ = writeError(conn, fmt.Sprintf("stat: %v", err))
 		}
+		return
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		_ = writeError(conn, "symlinks not allowed")
 		return
 	}
 	if !fi.Mode().IsRegular() {

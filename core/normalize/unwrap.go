@@ -120,7 +120,8 @@ var wrapperConfigs = map[string]wrapperConfig{
 // (FOO=bar) are also stripped before wrapper processing.
 func unwrapPrefixTokens(tokens []string) []string {
 	// Strip leading bare env assignments: FOO=bar BAZ=qux make
-	for len(tokens) > 1 && isEnvAssignment(tokens[0]) {
+	// Guard with !isFlag to avoid stripping --flag=value tokens.
+	for len(tokens) > 1 && !isFlag(tokens[0]) && isEnvAssignment(tokens[0]) {
 		tokens = tokens[1:]
 	}
 

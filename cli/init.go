@@ -85,14 +85,14 @@ func detectShell() string {
 
 func appendToRc(shell, sourceLine string) error {
 	rcPath := rcFilePathShell(shell)
-	
+
 	// Get the directory containing the hunch binary
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("get executable path: %w", err)
 	}
 	binDir := filepath.Dir(execPath)
-	
+
 	// Wrap in BEGIN/END markers for clean uninstall
 	block := fmt.Sprintf("# BEGIN hunch config\nexport PATH=\"$PATH:%s\"\nsource %s\n# END hunch config", binDir, sourceLine)
 
@@ -111,7 +111,7 @@ func appendToRc(shell, sourceLine string) error {
 	}
 
 	content := string(data)
-	
+
 	// Check if already present (with or without markers)
 	if strings.Contains(content, sourceLine) {
 		return nil

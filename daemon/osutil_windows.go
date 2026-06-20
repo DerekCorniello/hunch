@@ -68,7 +68,7 @@ func (l *windowsLocker) Close() error {
 }
 
 func OpenLock(path string) (Locker, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}

@@ -112,28 +112,28 @@ func removeRcLine(rcPath string) (bool, error) {
 	var lines []string
 	changed := false
 	inHunchBlock := false
-	
+
 	for _, line := range strings.Split(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
-		
+
 		// Check for BEGIN marker
 		if strings.Contains(trimmed, "# BEGIN hunch config") {
 			inHunchBlock = true
 			changed = true
 			continue
 		}
-		
+
 		// Check for END marker
 		if strings.Contains(trimmed, "# END hunch config") {
 			inHunchBlock = false
 			continue
 		}
-		
+
 		// Skip lines inside the hunch block
 		if inHunchBlock {
 			continue
 		}
-		
+
 		// Also remove any standalone hunch source lines (for backwards compatibility)
 		if strings.Contains(trimmed, "hunch") {
 			if strings.HasPrefix(trimmed, "source ") ||

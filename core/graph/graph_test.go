@@ -305,8 +305,6 @@ func TestGraphConcurrentReadsAndWrites(t *testing.T) {
 		state := []string{"", "cmd"}
 		next := "next"
 		g.Record(state, next, now)
-
-		_ = state
 		_ = i
 	}
 

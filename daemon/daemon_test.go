@@ -761,6 +761,97 @@ func TestImportSeed(t *testing.T) {
 			t.Errorf("error = %q, want 'import failed'", resp.Error)
 		}
 	})
+
+	t.Run("invalid_transition_empty_state", func(t *testing.T) {
+		_, _, socket := startDaemon(t, LoadConfig())
+
+		dir := t.TempDir()
+		seedPath := filepath.Join(dir, "bad_seed.json")
+		seed := `{"version":1,"transitions":[{"state":[],"next":"b","count":1,"last_seen":"2025-01-01T00:00:00Z"}]}` + "\n"
+		if err := os.WriteFile(seedPath, []byte(seed), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op":   "import",
+			"next": seedPath,
+		})
+		var resp struct {
+			Error string `json:"error"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if resp.Error == "" {
+			t.Fatal("expected error for invalid transition (empty state)")
+		}
+		if !strings.Contains(resp.Error, "import failed") {
+			t.Errorf("error = %q, want 'import failed'", resp.Error)
+		}
+	})
+
+	t.Run("invalid_transition_zero_count", func(t *testing.T) {
+		_, _, socket := startDaemon(t, LoadConfig())
+
+		dir := t.TempDir()
+		seedPath := filepath.Join(dir, "bad_seed.json")
+		seed := `{"version":1,"transitions":[{"state":["","a"],"next":"b","count":0,"last_seen":"2025-01-01T00:00:00Z"}]}` + "\n"
+		if err := os.WriteFile(seedPath, []byte(seed), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op":   "import",
+			"next": seedPath,
+		})
+		var resp struct {
+			Error string `json:"error"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if resp.Error == "" {
+			t.Fatal("expected error for invalid transition (zero count)")
+		}
+		if !strings.Contains(resp.Error, "import failed") {
+			t.Errorf("error = %q, want 'import failed'", resp.Error)
+		}
+	})
+
+	t.Run("symlink_rejected", func(t *testing.T) {
+		_, _, socket := startDaemon(t, LoadConfig())
+
+		dir := t.TempDir()
+		seedPath := filepath.Join(dir, "link.json")
+		targetPath := filepath.Join(dir, "target.json")
+		seed := `{"version":1,"transitions":[{"state":["","a"],"next":"b","count":1,"last_seen":"2025-01-01T00:00:00Z"}]}` + "\n"
+		if err := os.WriteFile(targetPath, []byte(seed), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(targetPath, seedPath); err != nil {
+			t.Fatal(err)
+		}
+
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op":   "import",
+			"next": seedPath,
+		})
+		var resp struct {
+			Error string `json:"error"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if resp.Error == "" {
+			t.Fatal("expected error for symlink import")
+		}
+		if !strings.Contains(resp.Error, "symlinks") {
+			t.Errorf("error = %q, want 'symlinks'", resp.Error)
+		}
+	})
 }
 
 func TestFilterByPrefix(t *testing.T) {

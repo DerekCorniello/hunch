@@ -101,6 +101,21 @@ func TestTokenize(t *testing.T) {
 			input: `echo foo\`,
 			want:  []string{"echo", "foo"},
 		},
+		{
+			name:  "unterminated double quote",
+			input: `echo "hello`,
+			want:  []string{"echo", "hello"},
+		},
+		{
+			name:  "unterminated single quote",
+			input: `echo 'hello`,
+			want:  []string{"echo", "hello"},
+		},
+		{
+			name:  "unterminated double quote with trailing text",
+			input: `echo "hello world`,
+			want:  []string{"echo", "hello world"},
+		},
 	}
 
 	for _, tt := range tests {

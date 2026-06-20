@@ -21,3 +21,23 @@ vendor/
 *.swo
 *~
 .DS_Store
+
+# Build artifacts
+dist/
+build/
+
+# Profiling
+*.prof
+*.pprof
+coverage.html
+
+# SQLite (should never be committed)
+*.db
+*.db-wal
+*.db-shm
+
+# Temp
+tmp/
+
+# Environment (may contain secrets)
+.env
