@@ -26,7 +26,7 @@ git clone https://github.com/user/repo.git
 # ghost text: cd repo          press Right or End to accept
 
 After a few commands, Hunch learns your workflows:
-```
+```text
 git clone REPO → cd STR
 cargo build    → cargo run
 ssh STR        → ssh STR

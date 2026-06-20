@@ -26,13 +26,13 @@ lint:
 
 lint-shell:
 	@echo "--- bash ---"
-	shellcheck integrations/bash/hunch.bash
+	which shellcheck 2>/dev/null && shellcheck integrations/bash/hunch.bash || echo "shellcheck not found, skipping"
 	@echo "--- zsh ---"
-	zsh -n integrations/zsh/hunch.zsh
+	which zsh 2>/dev/null && zsh -n integrations/zsh/hunch.zsh || echo "zsh not found, skipping"
 	@echo "--- fish ---"
-	fish -n integrations/fish/hunch.fish
+	which fish 2>/dev/null && fish -n integrations/fish/hunch.fish || echo "fish not found, skipping"
 	@echo "--- powershell ---"
-	pwsh -NoLogo -NoProfile -Command "Get-Command -Syntax . 'integrations/powershell/hunch.ps1'"
+	which pwsh 2>/dev/null && pwsh -NoLogo -NoProfile -Command "Get-Command -Syntax . 'integrations/powershell/hunch.ps1'" || echo "pwsh not found, skipping"
 
 hooks:
 	@if [ "$(shell git config core.hooksPath)" != ".githooks" ]; then \
