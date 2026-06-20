@@ -372,7 +372,7 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	suggestions := d.pred.Load().Predict(st, at, 0)
 
 	if req.Prefix != "" {
-		suggestions = filterByPrefix(suggestions, req.Prefix)
+		suggestions = filterByPrefix(suggestions, req.Prefix, d.parents)
 	}
 
 	limit := req.Limit
@@ -599,10 +599,11 @@ func (d *daemon) importSeed(path string) error {
 	return nil
 }
 
-func filterByPrefix(suggestions []types.Suggestion, prefix string) []types.Suggestion {
+func filterByPrefix(suggestions []types.Suggestion, prefix string, parents []string) []types.Suggestion {
+	normPrefix := normalize.Normalize(prefix, parents)
 	var filtered []types.Suggestion
 	for _, s := range suggestions {
-		if strings.HasPrefix(s.Template, prefix) {
+		if strings.HasPrefix(s.Template, normPrefix) {
 			filtered = append(filtered, s)
 		}
 	}

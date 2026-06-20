@@ -862,28 +862,28 @@ func TestFilterByPrefix(t *testing.T) {
 	}
 
 	t.Run("matches_some", func(t *testing.T) {
-		result := filterByPrefix(suggestions, "git")
+		result := filterByPrefix(suggestions, "git", nil)
 		if len(result) != 2 {
 			t.Fatalf("expected 2 matches, got %d", len(result))
 		}
 	})
 
 	t.Run("no_matches", func(t *testing.T) {
-		result := filterByPrefix(suggestions, "docker")
+		result := filterByPrefix(suggestions, "docker", nil)
 		if len(result) != 0 {
 			t.Errorf("expected 0 matches, got %d", len(result))
 		}
 	})
 
 	t.Run("all_match", func(t *testing.T) {
-		result := filterByPrefix(suggestions, "")
+		result := filterByPrefix(suggestions, "", nil)
 		if len(result) != 3 {
 			t.Errorf("expected 3 matches with empty prefix, got %d", len(result))
 		}
 	})
 
 	t.Run("exact_match", func(t *testing.T) {
-		result := filterByPrefix(suggestions, "git push STR")
+		result := filterByPrefix(suggestions, "git push STR", nil)
 		if len(result) != 1 {
 			t.Fatalf("expected 1 match, got %d", len(result))
 		}
@@ -893,9 +893,19 @@ func TestFilterByPrefix(t *testing.T) {
 	})
 
 	t.Run("empty_input", func(t *testing.T) {
-		result := filterByPrefix(nil, "git")
+		result := filterByPrefix(nil, "git", nil)
 		if len(result) != 0 {
 			t.Errorf("expected 0 from nil input, got %d", len(result))
+		}
+	})
+
+	t.Run("normalized_raw_prefix", func(t *testing.T) {
+		result := filterByPrefix(suggestions, `git commit -m "hel`, nil)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 match, got %d", len(result))
+		}
+		if result[0].Template != "git commit FLAG STR" {
+			t.Errorf("template = %q, want %q", result[0].Template, "git commit FLAG STR")
 		}
 	})
 }

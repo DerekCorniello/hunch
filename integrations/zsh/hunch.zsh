@@ -5,7 +5,7 @@ _HUNCH_SUGGESTION=""
 _HUNCH_LAST_BUFFER=""
 _HUNCH_LAST_POSTDISPLAY=""
 _HUNCH_LAST_SUGGESTION=""
-_HUNCH_HIGHLIGHT_STYLE=${HUNCH_HIGHLIGHT_STYLE:-fg=245}
+_HUNCH_HIGHLIGHT_STYLE=${HUNCH_HIGHLIGHT_STYLE:-${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}}
 
 _hunch_daemon_ensure() {
 	if ! "$_HUNCH_BIN" daemon status >/dev/null 2>&1; then
@@ -29,9 +29,8 @@ _hunch_record() {
 }
 
 _hunch_predict() {
-	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-
 	if [[ -n "$_HUNCH_LAST_SUGGESTION" && "$BUFFER" == "$_HUNCH_LAST_SUGGESTION" ]]; then
+		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 		POSTDISPLAY=""
 		_HUNCH_LAST_POSTDISPLAY=""
 		return
@@ -44,13 +43,14 @@ _hunch_predict() {
 			--limit 1 \
 			--raw 2>/dev/null)
 
+		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 		if [[ -n "$suggestion" ]]; then
 			POSTDISPLAY="$suggestion"
 			_HUNCH_LAST_POSTDISPLAY="$POSTDISPLAY"
 			_HUNCH_LAST_SUGGESTION="$suggestion"
 			region_highlight+=("$CURSOR $((CURSOR + $#suggestion)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
 		else
-			POSTDISPLAY=""
+			region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 			_HUNCH_LAST_POSTDISPLAY=""
 			_HUNCH_LAST_SUGGESTION=""
 		fi
@@ -69,14 +69,21 @@ _hunch_predict() {
 		--limit 1 \
 		--raw 2>/dev/null)
 
-	if [[ -n "$suggestion" && "$suggestion" != "$BUFFER" ]]; then
+	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
+	if [[ -n "$suggestion" ]]; then
 		local suffix="${suggestion#$BUFFER}"
-		POSTDISPLAY="$suffix"
-		_HUNCH_LAST_POSTDISPLAY="$POSTDISPLAY"
-		_HUNCH_LAST_SUGGESTION="$suggestion"
-		region_highlight+=("$CURSOR $((CURSOR + $#suffix)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
+		if [[ -n "$suffix" && "$suffix" != "$suggestion" ]]; then
+			POSTDISPLAY="$suffix"
+			_HUNCH_LAST_POSTDISPLAY="$POSTDISPLAY"
+			_HUNCH_LAST_SUGGESTION="$suggestion"
+			region_highlight+=("$CURSOR $((CURSOR + $#suffix)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
+		else
+			region_highlight=("${region_highlight[@]:#*memo=hunch*}")
+			_HUNCH_LAST_POSTDISPLAY=""
+			_HUNCH_LAST_SUGGESTION=""
+		fi
 	else
-		POSTDISPLAY=""
+		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 		_HUNCH_LAST_POSTDISPLAY=""
 		_HUNCH_LAST_SUGGESTION=""
 	fi
