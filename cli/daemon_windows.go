@@ -34,7 +34,7 @@ func cmdDaemonStart() error {
 	}
 
 	logPath := filepath.Join(filepath.Dir(opts.DBPath), "hunch.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := openDaemonLogFile(logPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not open log file %s: %v\n", logPath, err)
 		logFile = nil

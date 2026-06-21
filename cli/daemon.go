@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -14,6 +15,11 @@ import (
 
 	"github.com/DerekCorniello/hunch/daemon"
 )
+
+// ErrDaemonNotRunning is returned by cmdDaemonStatus when the daemon is not
+// running, so callers (e.g. the shell integration) can detect this via exit
+// code alone. The human-readable reason is already printed to stdout.
+var ErrDaemonNotRunning = errors.New("hunch daemon is not running")
 
 func cmdDaemon(args []string) error {
 	if len(args) < 1 {
@@ -106,19 +112,19 @@ func cmdDaemonStatus() error {
 
 	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
 		fmt.Println("hunch daemon is stopped")
-		return nil
+		return ErrDaemonNotRunning
 	}
 
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
 		fmt.Println("hunch daemon is stopped (no pid file)")
-		return nil
+		return ErrDaemonNotRunning
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
 	if err != nil {
 		fmt.Println("hunch daemon is stopped (invalid pid)")
-		return nil
+		return ErrDaemonNotRunning
 	}
 
 	alive, err := daemon.ProcessExists(pid)
@@ -127,11 +133,25 @@ func cmdDaemonStatus() error {
 	}
 	if !alive {
 		fmt.Println("hunch daemon is stopped (stale lock)")
-		return nil
+		return ErrDaemonNotRunning
 	}
 
 	fmt.Printf("hunch daemon is running (pid: %d, socket: %s)\n", pid, socketPath)
 	return nil
+}
+
+// maxDaemonLogSize is the size threshold at which the daemon log is rotated
+// before each daemon start, to bound unattended growth (e.g. from a daemon
+// that crash-loops and keeps appending to the same file).
+const maxDaemonLogSize = 10 * 1024 * 1024 // 10 MiB
+
+// openDaemonLogFile opens the daemon log for appending, rotating it to
+// hunch.log.old first if it has grown past maxDaemonLogSize.
+func openDaemonLogFile(logPath string) (*os.File, error) {
+	if info, err := os.Stat(logPath); err == nil && info.Size() > maxDaemonLogSize {
+		_ = os.Rename(logPath, logPath+".old")
+	}
+	return os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 }
 
 func waitForSocket(path string, timeout time.Duration) error {

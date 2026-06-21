@@ -392,8 +392,8 @@ func TestDaemonStatusInvalidPid(t *testing.T) {
 	}
 
 	err = Run([]string{"daemon", "status"})
-	if err != nil {
-		t.Fatalf("status with invalid pid should not error: %v", err)
+	if err != ErrDaemonNotRunning {
+		t.Fatalf("status with invalid pid: got %v, want ErrDaemonNotRunning", err)
 	}
 }
 
@@ -412,8 +412,8 @@ func TestDaemonStatusNoPidFile(t *testing.T) {
 	t.Setenv("HUNCH_DB_PATH", dbPath)
 
 	err = Run([]string{"daemon", "status"})
-	if err != nil {
-		t.Fatalf("status with no pid file should not error: %v", err)
+	if err != ErrDaemonNotRunning {
+		t.Fatalf("status with no pid file: got %v, want ErrDaemonNotRunning", err)
 	}
 }
 
@@ -581,8 +581,8 @@ func TestDaemonStatusNotRunning(t *testing.T) {
 	t.Setenv("HUNCH_SOCKET", filepath.Join(t.TempDir(), "nonexistent.sock"))
 
 	err := Run([]string{"daemon", "status"})
-	if err != nil {
-		t.Fatalf("daemon status when not running should not error: %v", err)
+	if err != ErrDaemonNotRunning {
+		t.Fatalf("daemon status when not running: got %v, want ErrDaemonNotRunning", err)
 	}
 }
 
