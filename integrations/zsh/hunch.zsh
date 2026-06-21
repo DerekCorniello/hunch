@@ -10,7 +10,12 @@ _HUNCH_HIGHLIGHT_STYLE=${HUNCH_HIGHLIGHT_STYLE:-${ZSH_AUTOSUGGEST_HIGHLIGHT_STYL
 
 _hunch_clear_display() {
 	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-	POSTDISPLAY=""
+	# Only clear POSTDISPLAY if it still holds what hunch put there. Another
+	# plugin (e.g. zsh-autosuggestions) may have set its own suggestion since;
+	# wiping POSTDISPLAY unconditionally would erase that suggestion instead.
+	if [[ "$POSTDISPLAY" == "$_HUNCH_LAST_POSTDISPLAY" ]]; then
+		POSTDISPLAY=""
+	fi
 	_HUNCH_LAST_PREFIX=""
 	_HUNCH_LAST_POSTDISPLAY=""
 	_HUNCH_LAST_SUGGESTION=""
@@ -21,7 +26,10 @@ _hunch_show_display() {
 	local display="$2"
 	local suggestion="$3"
 
-	if [[ "$display" == "$_HUNCH_LAST_POSTDISPLAY" && "$suggestion" == "$_HUNCH_LAST_SUGGESTION" ]]; then
+	# Hunch's suggestion takes precedence over another plugin's (e.g.
+	# zsh-autosuggestions) when hunch has one to offer, so always set it here.
+	# _hunch_clear_display is the one that holds back when hunch has nothing.
+	if [[ "$display" == "$_HUNCH_LAST_POSTDISPLAY" && "$suggestion" == "$_HUNCH_LAST_SUGGESTION" && "$POSTDISPLAY" == "$_HUNCH_LAST_POSTDISPLAY" ]]; then
 		_HUNCH_LAST_PREFIX="$prefix"
 		return
 	fi
@@ -110,7 +118,11 @@ _hunch_predict() {
 }
 
 _hunch_accept_or_forward() {
-	if [[ CURSOR -eq ${#BUFFER} && -n "$POSTDISPLAY" && "$BUFFER" == "$_HUNCH_LAST_PREFIX" ]]; then
+	# Only treat this as an accept if hunch is the one currently showing the
+	# suggestion (POSTDISPLAY matches what hunch set). Otherwise some other
+	# plugin (e.g. zsh-autosuggestions) owns the suggestion right now, and we
+	# must defer to whatever widget was originally bound to this key.
+	if [[ CURSOR -eq ${#BUFFER} && -n "$POSTDISPLAY" && "$POSTDISPLAY" == "$_HUNCH_LAST_POSTDISPLAY" && "$BUFFER" == "$_HUNCH_LAST_PREFIX" ]]; then
 		local suffix="$POSTDISPLAY"
 		_hunch_clear_display
 		BUFFER="$BUFFER$suffix"
@@ -120,12 +132,13 @@ _hunch_accept_or_forward() {
 			_zsh_highlight
 		fi
 	else
-		zle .forward-char
+		local key="$KEYMAP:^[[C"
+		zle "${_HUNCH_ORIG_WIDGET[$key]:-.forward-char}"
 	fi
 }
 
 _hunch_accept_end() {
-	if [[ -n "$POSTDISPLAY" && "$BUFFER" == "$_HUNCH_LAST_PREFIX" ]]; then
+	if [[ -n "$POSTDISPLAY" && "$POSTDISPLAY" == "$_HUNCH_LAST_POSTDISPLAY" && "$BUFFER" == "$_HUNCH_LAST_PREFIX" ]]; then
 		local suffix="$POSTDISPLAY"
 		_hunch_clear_display
 		BUFFER="$BUFFER$suffix"
@@ -134,6 +147,9 @@ _hunch_accept_end() {
 		if (( $+functions[_zsh_highlight] )); then
 			_zsh_highlight
 		fi
+	else
+		local key="$KEYMAP:^[[F"
+		zle "${_HUNCH_ORIG_WIDGET[$key]:-.end-of-line}"
 	fi
 }
 
@@ -179,6 +195,26 @@ _hunch_pre_redraw() {
   fi
   _hunch_predict
 }
+
+# Remember whatever widget each keymap already had bound to these keys (e.g.
+# zsh-autosuggestions' own accept-on-arrow wrapper) so that when hunch has no
+# suggestion of its own to offer, it forwards to that widget instead of a
+# raw builtin, rather than silently replacing the existing behavior.
+typeset -gA _HUNCH_ORIG_WIDGET
+
+_hunch_capture_orig_widget() {
+	local keymap="$1" keys="$2" line widget
+	line=$(bindkey -M "$keymap" "$keys" 2>/dev/null)
+	[[ -z "$line" ]] && return
+	widget="${line#* }"
+	[[ -n "$widget" && "$widget" != "undefined-key" ]] && _HUNCH_ORIG_WIDGET[$keymap:$keys]="$widget"
+}
+
+for _hunch_km in main vicmd viins; do
+	_hunch_capture_orig_widget "$_hunch_km" '^[[C'
+	_hunch_capture_orig_widget "$_hunch_km" '^[[F'
+done
+unset _hunch_km
 
 bindkey '^[[C' _hunch_accept_or_forward
 bindkey '^[[F' _hunch_accept_end
