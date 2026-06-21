@@ -286,6 +286,71 @@ real-time scanning to avoid lock contention with the SQLite database.
 
 ---
 
+## Boot persistence
+
+The daemon starts automatically the first time you open a terminal after boot
+(your shell rc file runs `hunch daemon start`). It then stays alive as a
+detached background process across terminal sessions. This is sufficient for
+normal interactive use.
+
+If you need the daemon running without an interactive shell (e.g. tmux sessions
+that auto-start, CI, SSH invocations), install a user service for your platform:
+
+**Linux (systemd):**
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/hunch-daemon.service << 'EOF'
+[Unit]
+Description=Hunch daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/go/bin/hunch daemon run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+systemctl --user enable --now hunch-daemon
+```
+
+**macOS (launchd):**
+```bash
+mkdir -p ~/Library/LaunchAgents
+cat > ~/Library/LaunchAgents/com.user.hunch-daemon.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.hunch-daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>PATH/TO/hunch</string>
+        <string>daemon</string>
+        <string>run</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+EOF
+launchctl load ~/Library/LaunchAgents/com.user.hunch-daemon.plist
+```
+
+**Windows (Task Scheduler):**
+```powershell
+$action = New-ScheduledTaskAction -Execute "hunch.exe" -Argument "daemon run"
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+Register-ScheduledTask -TaskName HunchDaemon -Action $action -Trigger $trigger
+```
+
+---
+
 ## Non-goals
 
 - No AI/LLM — purely statistical learning
