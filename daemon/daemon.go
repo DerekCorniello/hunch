@@ -383,20 +383,32 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 		suggestions = suggestions[:limit]
 	}
 
-	// Fill in raw commands from the raw mapping.
+	// Fill in raw commands from the raw mapping. Multiple raw commands can
+	// share a template (e.g. "cat a.txt" and "cat b.txt" both normalize to
+	// "cat STR"). When a prefix was given, prefer the most common raw that
+	// literally starts with it over the template's overall most common raw,
+	// so the suggestion text can actually extend what the user is typing.
 	d.rawMu.RLock()
 	for i, s := range suggestions {
-		bestRaw := ""
-		bestCount := 0
+		bestRaw, bestCount := "", 0
+		bestPrefixRaw, bestPrefixCount := "", 0
 		if inner, ok := d.rawMap[s.Template]; ok {
 			for raw, count := range inner {
 				if count > bestCount {
 					bestCount = count
 					bestRaw = raw
 				}
+				if req.Prefix != "" && strings.HasPrefix(raw, req.Prefix) && count > bestPrefixCount {
+					bestPrefixCount = count
+					bestPrefixRaw = raw
+				}
 			}
 		}
-		suggestions[i].Raw = bestRaw
+		if bestPrefixRaw != "" {
+			suggestions[i].Raw = bestPrefixRaw
+		} else {
+			suggestions[i].Raw = bestRaw
+		}
 	}
 	d.rawMu.RUnlock()
 
