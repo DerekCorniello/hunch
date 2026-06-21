@@ -4,6 +4,7 @@ end
 set -g _hunch_prev1 ""
 set -g _hunch_prev2 ""
 set -g _hunch_suggestion ""
+set -g _hunch_suggestion_prefix ""
 
 function _hunch_daemon_ensure --on-event fish_prompt
 	functions -e _hunch_daemon_ensure
@@ -27,9 +28,18 @@ function _hunch_record --on-event fish_postexec
 	set _hunch_prev2 $cmd
 end
 
+function _hunch_clear_suggestion
+	set -g _hunch_suggestion ""
+	set -g _hunch_suggestion_prefix ""
+end
+
 function _hunch_predict
 	set -l cmdline (commandline -p)
-	test -n "$cmdline" || return
+	test -n "$cmdline"
+	or begin
+		_hunch_clear_suggestion
+		return 1
+	end
 
 	set -l suggestion
 	set suggestion ($HUNCH_BIN client predict \
@@ -40,32 +50,38 @@ function _hunch_predict
 
 	if test -n "$suggestion" -a "$suggestion" != "$cmdline"
 		set -g _hunch_suggestion $suggestion
+		set -g _hunch_suggestion_prefix $cmdline
+		return 0
 	else
-		set -g _hunch_suggestion ""
+		_hunch_clear_suggestion
+		return 1
 	end
 end
 
 function _hunch_accept
-	if test -n "$_hunch_suggestion"
+	set -l cmdline (commandline -p)
+	set -l cursor (commandline -C)
+
+	if test -n "$_hunch_suggestion" -a "$cmdline" = "$_hunch_suggestion_prefix" -a "$cursor" -eq (string length "$cmdline")
 		commandline -r "$_hunch_suggestion"
 		commandline -C (string length "$_hunch_suggestion")
-		set -g _hunch_suggestion ""
+		_hunch_clear_suggestion
+		return 0
 	end
+
+	_hunch_clear_suggestion
+	return 1
 end
 
 function _hunch_right
-	set -l cl (commandline -p)
-	set -l full (commandline)
-	if test (string length "$cl") -eq (string length "$full") -a -n "$_hunch_suggestion"
-		_hunch_accept
-	else
+	if not _hunch_accept
 		commandline -f forward-char
 	end
 end
 
 function _hunch_end
-	if test -n "$_hunch_suggestion"
-		_hunch_accept
+	if not _hunch_accept
+		commandline -f end-of-line
 	end
 end
 

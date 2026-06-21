@@ -13,6 +13,7 @@ $HunchBin = if ($env:HUNCH_BIN) { $env:HUNCH_BIN } else { "hunch" }
 $script:HunchPrev1 = ""
 $script:HunchPrev2 = ""
 $script:HunchSuggestion = ""
+$script:HunchPrefix = ""
 
 function Invoke-HunchDaemonEnsure {
 	if (& $HunchBin daemon status 2>$null) { return }
@@ -37,11 +38,16 @@ function Invoke-HunchRecord {
 	$script:HunchPrev2 = $Cmd
 }
 
+function Invoke-HunchClearSuggestion {
+	$script:HunchSuggestion = ""
+	$script:HunchPrefix = ""
+}
+
 function Invoke-HunchPredict {
 	param([string]$Buffer)
 
 	if ([string]::IsNullOrEmpty($Buffer)) {
-		$script:HunchSuggestion = ""
+		Invoke-HunchClearSuggestion
 		return
 	}
 
@@ -54,30 +60,44 @@ function Invoke-HunchPredict {
 
 		if ($suggestion -and $suggestion -ne $Buffer) {
 			$script:HunchSuggestion = $suggestion
+			$script:HunchPrefix = $Buffer
 			return
 		}
 	} catch {}
-	$script:HunchSuggestion = ""
+	Invoke-HunchClearSuggestion
+}
+
+function Invoke-HunchAccept {
+	$line = ""
+	$cursor = 0
+	[Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+
+	Invoke-HunchPredict -Buffer $line
+	if ([string]::IsNullOrEmpty($script:HunchSuggestion)) {
+		return $false
+	}
+
+	if ($line -ne $script:HunchPrefix -or $cursor -ne $line.Length) {
+		Invoke-HunchClearSuggestion
+		return $false
+	}
+
+	[Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, $script:HunchSuggestion)
+	[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($script:HunchSuggestion.Length)
+	Invoke-HunchClearSuggestion
+	return $true
 }
 
 [Microsoft.PowerShell.PSConsoleReadLine]::SetKeyHandler([ConsoleKey]::RightArrow, {
 	param($key, $arg)
-	if (-not [string]::IsNullOrEmpty($script:HunchSuggestion)) {
-		[Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $script:HunchSuggestion.Length, $script:HunchSuggestion)
-		[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($script:HunchSuggestion.Length)
-		$script:HunchSuggestion = ""
-	} else {
+	if (-not (Invoke-HunchAccept)) {
 		[Microsoft.PowerShell.PSConsoleReadLine]::ForwardChar($key, $arg)
 	}
 })
 
 [Microsoft.PowerShell.PSConsoleReadLine]::SetKeyHandler([ConsoleKey]::End, {
 	param($key, $arg)
-	if (-not [string]::IsNullOrEmpty($script:HunchSuggestion)) {
-		[Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $script:HunchSuggestion.Length, $script:HunchSuggestion)
-		[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($script:HunchSuggestion.Length)
-		$script:HunchSuggestion = ""
-	} else {
+	if (-not (Invoke-HunchAccept)) {
 		[Microsoft.PowerShell.PSConsoleReadLine]::EndOfLine($key, $arg)
 	}
 })

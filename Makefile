@@ -32,7 +32,7 @@ lint-shell:
 	@echo "--- fish ---"
 	which fish 2>/dev/null && fish -n integrations/fish/hunch.fish || echo "fish not found, skipping"
 	@echo "--- powershell ---"
-	which pwsh 2>/dev/null && pwsh -NoLogo -NoProfile -Command "Get-Command -Syntax . 'integrations/powershell/hunch.ps1'" || echo "pwsh not found, skipping"
+	which pwsh 2>/dev/null && pwsh -NoLogo -NoProfile -Command "[ScriptBlock]::Create((Get-Content -Raw 'integrations/powershell/hunch.ps1')) | Out-Null" || echo "pwsh not found, skipping"
 
 hooks:
 	@if [ "$(shell git config core.hooksPath)" != ".githooks" ]; then \

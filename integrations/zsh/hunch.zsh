@@ -3,9 +3,36 @@ typeset -ga _HUNCH_PREV
 _HUNCH_PREV=("" "")
 _HUNCH_SUGGESTION=""
 _HUNCH_LAST_BUFFER=""
+_HUNCH_LAST_PREFIX=""
 _HUNCH_LAST_POSTDISPLAY=""
 _HUNCH_LAST_SUGGESTION=""
 _HUNCH_HIGHLIGHT_STYLE=${HUNCH_HIGHLIGHT_STYLE:-${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}}
+
+_hunch_clear_display() {
+	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
+	POSTDISPLAY=""
+	_HUNCH_LAST_PREFIX=""
+	_HUNCH_LAST_POSTDISPLAY=""
+	_HUNCH_LAST_SUGGESTION=""
+}
+
+_hunch_show_display() {
+	local prefix="$1"
+	local display="$2"
+	local suggestion="$3"
+
+	if [[ "$display" == "$_HUNCH_LAST_POSTDISPLAY" && "$suggestion" == "$_HUNCH_LAST_SUGGESTION" ]]; then
+		_HUNCH_LAST_PREFIX="$prefix"
+		return
+	fi
+
+	_HUNCH_LAST_PREFIX="$prefix"
+	POSTDISPLAY="$display"
+	_HUNCH_LAST_POSTDISPLAY="$display"
+	_HUNCH_LAST_SUGGESTION="$suggestion"
+	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
+	region_highlight+=("$CURSOR $((CURSOR + $#display)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
+}
 
 _hunch_daemon_ensure() {
 	if ! "$_HUNCH_BIN" daemon status >/dev/null 2>&1; then
@@ -30,29 +57,27 @@ _hunch_record() {
 
 _hunch_predict() {
 	if [[ -n "$_HUNCH_LAST_SUGGESTION" && "$BUFFER" == "$_HUNCH_LAST_SUGGESTION" ]]; then
-		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-		POSTDISPLAY=""
-		_HUNCH_LAST_POSTDISPLAY=""
+		_hunch_clear_display
 		return
 	fi
 
+	local suggestion display
 	if [[ -z "$BUFFER" ]]; then
-		local suggestion
 		suggestion=$("$_HUNCH_BIN" client predict \
 			--state "${(j.,.)_HUNCH_PREV}" \
 			--limit 1 \
 			--raw 2>/dev/null)
 
-		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 		if [[ -n "$suggestion" ]]; then
-			POSTDISPLAY="$suggestion"
-			_HUNCH_LAST_POSTDISPLAY="$POSTDISPLAY"
-			_HUNCH_LAST_SUGGESTION="$suggestion"
-			region_highlight+=("$CURSOR $((CURSOR + $#suggestion)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
+			display="$suggestion"
 		else
-			region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-			_HUNCH_LAST_POSTDISPLAY=""
-			_HUNCH_LAST_SUGGESTION=""
+			display=""
+		fi
+		_HUNCH_LAST_BUFFER="$BUFFER"
+		if [[ -n "$display" ]]; then
+			_hunch_show_display "$BUFFER" "$display" "$suggestion"
+		else
+			_hunch_clear_display
 		fi
 		return
 	fi
@@ -62,42 +87,35 @@ _hunch_predict() {
 	fi
 	_HUNCH_LAST_BUFFER="$BUFFER"
 
-	local suggestion
 	suggestion=$("$_HUNCH_BIN" client predict \
 		--state "${(j.,.)_HUNCH_PREV}" \
 		--prefix "$BUFFER" \
 		--limit 1 \
 		--raw 2>/dev/null)
 
-	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
 	if [[ -n "$suggestion" ]]; then
-		local suffix="${suggestion#$BUFFER}"
-		if [[ -n "$suffix" && "$suffix" != "$suggestion" ]]; then
-			POSTDISPLAY="$suffix"
-			_HUNCH_LAST_POSTDISPLAY="$POSTDISPLAY"
-			_HUNCH_LAST_SUGGESTION="$suggestion"
-			region_highlight+=("$CURSOR $((CURSOR + $#suffix)) $_HUNCH_HIGHLIGHT_STYLE memo=hunch")
-		else
-			region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-			_HUNCH_LAST_POSTDISPLAY=""
-			_HUNCH_LAST_SUGGESTION=""
+		display="${suggestion#$BUFFER}"
+		if [[ "$display" == "$suggestion" ]]; then
+			display=""
 		fi
 	else
-		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-		_HUNCH_LAST_POSTDISPLAY=""
-		_HUNCH_LAST_SUGGESTION=""
+		display=""
+	fi
+
+	if [[ -n "$display" ]]; then
+		_hunch_show_display "$BUFFER" "$display" "$suggestion"
+	else
+		_hunch_clear_display
 	fi
 }
 
 _hunch_accept_or_forward() {
-	if [[ CURSOR -eq ${#BUFFER} && -n "$POSTDISPLAY" ]]; then
-		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-		BUFFER="$BUFFER$POSTDISPLAY"
+	if [[ CURSOR -eq ${#BUFFER} && -n "$POSTDISPLAY" && "$BUFFER" == "$_HUNCH_LAST_PREFIX" ]]; then
+		local suffix="$POSTDISPLAY"
+		_hunch_clear_display
+		BUFFER="$BUFFER$suffix"
 		CURSOR=${#BUFFER}
-		POSTDISPLAY=""
 		_HUNCH_LAST_BUFFER=""
-		_HUNCH_LAST_POSTDISPLAY=""
-		_HUNCH_LAST_SUGGESTION=""
 		if (( $+functions[_zsh_highlight] )); then
 			_zsh_highlight
 		fi
@@ -107,14 +125,12 @@ _hunch_accept_or_forward() {
 }
 
 _hunch_accept_end() {
-	if [[ -n "$POSTDISPLAY" ]]; then
-		region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-		BUFFER="$BUFFER$POSTDISPLAY"
+	if [[ -n "$POSTDISPLAY" && "$BUFFER" == "$_HUNCH_LAST_PREFIX" ]]; then
+		local suffix="$POSTDISPLAY"
+		_hunch_clear_display
+		BUFFER="$BUFFER$suffix"
 		CURSOR=${#BUFFER}
-		POSTDISPLAY=""
 		_HUNCH_LAST_BUFFER=""
-		_HUNCH_LAST_POSTDISPLAY=""
-		_HUNCH_LAST_SUGGESTION=""
 		if (( $+functions[_zsh_highlight] )); then
 			_zsh_highlight
 		fi
@@ -122,12 +138,9 @@ _hunch_accept_end() {
 }
 
 _hunch_line_finish() {
-	region_highlight=("${region_highlight[@]:#*memo=hunch*}")
-	POSTDISPLAY=""
+	_hunch_clear_display
 	_HUNCH_SUGGESTION=""
 	_HUNCH_LAST_BUFFER=""
-	_HUNCH_LAST_POSTDISPLAY=""
-	_HUNCH_LAST_SUGGESTION=""
 }
 
 zle -N _hunch_accept_or_forward
