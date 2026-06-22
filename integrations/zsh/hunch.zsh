@@ -91,6 +91,15 @@ _hunch_predict() {
 	fi
 
 	if [[ "$BUFFER" == "$_HUNCH_LAST_BUFFER" ]]; then
+		# No need to re-query the daemon, but another plugin's async callback
+		# (e.g. zsh-autosuggestions, which fetches suggestions via a forked
+		# process and delivers them through a zle -F handler well after this
+		# hook last ran) may have overwritten POSTDISPLAY since we set it.
+		# Reassert our cached suggestion so it doesn't flicker away every
+		# other redraw.
+		if [[ -n "$_HUNCH_LAST_POSTDISPLAY" && "$POSTDISPLAY" != "$_HUNCH_LAST_POSTDISPLAY" ]]; then
+			_hunch_show_display "$_HUNCH_LAST_PREFIX" "$_HUNCH_LAST_POSTDISPLAY" "$_HUNCH_LAST_SUGGESTION"
+		fi
 		return
 	fi
 	_HUNCH_LAST_BUFFER="$BUFFER"
