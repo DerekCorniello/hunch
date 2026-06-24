@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,6 +81,19 @@ func resolveHistoryPath(shell, override string) (string, int, error) {
 	return "", 0, fmt.Errorf("unknown shell: %s", shell)
 }
 
+// maxHistoryLine bounds a single history line. The default bufio.Scanner
+// limit (64 KiB) silently drops longer lines; shell history can legitimately
+// contain very long one-liners, so allow up to 1 MiB per line.
+const maxHistoryLine = 1 << 20
+
+// newHistoryScanner returns a line scanner that tolerates lines up to
+// maxHistoryLine bytes instead of the 64 KiB default.
+func newHistoryScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), maxHistoryLine)
+	return sc
+}
+
 func countLines(path string) int {
 	f, err := os.Open(path)
 	if err != nil {
@@ -88,7 +102,7 @@ func countLines(path string) int {
 	defer f.Close()
 
 	var n int
-	sc := bufio.NewScanner(f)
+	sc := newHistoryScanner(f)
 	for sc.Scan() {
 		n++
 	}
@@ -282,7 +296,7 @@ func parseZshHistory(path string) ([]string, error) {
 	defer f.Close()
 
 	var cmds []string
-	sc := bufio.NewScanner(f)
+	sc := newHistoryScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
 		cmd := stripZshMeta(line)
@@ -317,7 +331,7 @@ func parseBashHistory(path string) ([]string, error) {
 	defer f.Close()
 
 	var cmds []string
-	sc := bufio.NewScanner(f)
+	sc := newHistoryScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -336,7 +350,7 @@ func parseFishHistory(path string) ([]string, error) {
 	defer f.Close()
 
 	var cmds []string
-	sc := bufio.NewScanner(f)
+	sc := newHistoryScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if after, ok := strings.CutPrefix(line, "- cmd:"); ok {
@@ -361,7 +375,7 @@ func parsePowerShellHistory() ([]string, error) {
 	}
 
 	var cmds []string
-	sc := bufio.NewScanner(strings.NewReader(string(out)))
+	sc := newHistoryScanner(strings.NewReader(string(out)))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line != "" {

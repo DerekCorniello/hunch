@@ -33,7 +33,8 @@ func scoreTransitions(transitions []graph.Transition, halfLife time.Duration, al
 
 	for i, t := range transitions {
 		age := at.Sub(t.LastSeen)
-		weight := math.Exp(-float64(age) / float64(halfLife))
+		// True half-life: weight is exactly 0.5 at age == halfLife.
+		weight := math.Exp(-math.Ln2 * float64(age) / float64(halfLife))
 		effCounts[i] = float64(t.Count) * weight
 		total += effCounts[i]
 	}

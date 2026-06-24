@@ -245,7 +245,7 @@ func TestGraphSize(t *testing.T) {
 	}
 }
 
-func TestGraphDecayAutoTicks(t *testing.T) {
+func TestGraphDecayKeepsRecent(t *testing.T) {
 	g := New(2)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
@@ -254,9 +254,12 @@ func TestGraphDecayAutoTicks(t *testing.T) {
 	before := g.Size()
 
 	after := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	g.Decay(after, 720*time.Hour)
+	res := g.Decay(after, 720*time.Hour)
 
-	// Recent entry should survive decay.
+	// Recent entry (one month old, 30-day half-life) should survive decay.
+	if len(res.Pruned) != 0 {
+		t.Errorf("Pruned = %d, want 0", len(res.Pruned))
+	}
 	if g.Size() != before {
 		t.Errorf("Size after Decay = %d, want %d", g.Size(), before)
 	}
@@ -267,6 +270,53 @@ func TestGraphDecayAutoTicks(t *testing.T) {
 	}
 	if transitions[0].Count != 1 {
 		t.Errorf("Count after Decay = %d, want 1", transitions[0].Count)
+	}
+}
+
+func TestGraphDecayPrunesStaleAndReportsOrphan(t *testing.T) {
+	g := New(2)
+
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	veryOld := now.Add(-365 * 24 * time.Hour) // ~1 year, well past the prune threshold
+	g.Record([]string{"", "a"}, "stale", veryOld)
+	g.Record([]string{"", "b"}, "fresh", now)
+
+	res := g.Decay(now, 720*time.Hour)
+
+	if len(res.Pruned) != 1 {
+		t.Fatalf("Pruned = %d, want 1", len(res.Pruned))
+	}
+	if res.Pruned[0].Next != "stale" {
+		t.Errorf("pruned next = %q, want stale", res.Pruned[0].Next)
+	}
+	if got := res.Pruned[0].State; len(got) != 2 || got[1] != "a" {
+		t.Errorf("pruned state = %v, want [\"\" \"a\"]", got)
+	}
+	if len(res.Orphaned) != 1 || res.Orphaned[0] != "stale" {
+		t.Errorf("Orphaned = %v, want [stale]", res.Orphaned)
+	}
+	if g.Size() != 1 {
+		t.Errorf("Size after decay = %d, want 1", g.Size())
+	}
+}
+
+func TestGraphDecayKeepsReferencedTemplate(t *testing.T) {
+	g := New(2)
+
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	veryOld := now.Add(-365 * 24 * time.Hour)
+	// Same "shared" template reached from a stale and a fresh state.
+	g.Record([]string{"", "a"}, "shared", veryOld)
+	g.Record([]string{"", "b"}, "shared", now)
+
+	res := g.Decay(now, 720*time.Hour)
+
+	if len(res.Pruned) != 1 {
+		t.Fatalf("Pruned = %d, want 1", len(res.Pruned))
+	}
+	// "shared" is still referenced by the fresh state, so it is not orphaned.
+	if len(res.Orphaned) != 0 {
+		t.Errorf("Orphaned = %v, want none", res.Orphaned)
 	}
 }
 

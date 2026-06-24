@@ -105,18 +105,34 @@ func (g *Graph) Transitions(state []string) []Transition {
 	return result
 }
 
-// Decay prunes transitions whose effective weight falls below epsilon.
-// The effective weight is count * exp(-age / halfLife).
-func (g *Graph) Decay(at time.Time, halfLife time.Duration) {
+// DecayResult reports what Decay removed.
+type DecayResult struct {
+	// Pruned lists the (state, next) pairs removed from the graph. Only
+	// State and Next are populated; Count and LastSeen are zero.
+	Pruned []Transition
+	// Orphaned lists templates that no longer appear as the "next" of any
+	// surviving transition, so their stored raw examples can be pruned too.
+	Orphaned []string
+}
+
+// Decay prunes transitions whose effective weight falls below epsilon and
+// returns what was removed. The effective weight is count * 0.5^(age/halfLife),
+// so a single observation halves in weight every halfLife.
+func (g *Graph) Decay(at time.Time, halfLife time.Duration) DecayResult {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	const epsilon = 0.001
+	var pruned []Transition
 	for sk, inner := range g.m {
+		state := strings.Split(sk, "\x00")
 		for next, e := range inner {
 			age := at.Sub(e.lastSeen)
-			weight := float64(e.count) * math.Exp(-float64(age)/float64(halfLife))
+			weight := float64(e.count) * math.Exp(-math.Ln2*float64(age)/float64(halfLife))
 			if weight < epsilon {
+				stateCopy := make([]string, len(state))
+				copy(stateCopy, state)
+				pruned = append(pruned, Transition{State: stateCopy, Next: next})
 				delete(inner, next)
 			}
 		}
@@ -124,6 +140,33 @@ func (g *Graph) Decay(at time.Time, halfLife time.Duration) {
 			delete(g.m, sk)
 		}
 	}
+
+	if len(pruned) == 0 {
+		return DecayResult{}
+	}
+
+	// A pruned template's raw examples are only safe to drop once no
+	// surviving transition still has that template as its next.
+	remaining := make(map[string]struct{})
+	for _, inner := range g.m {
+		for next := range inner {
+			remaining[next] = struct{}{}
+		}
+	}
+	seen := make(map[string]struct{})
+	var orphaned []string
+	for _, t := range pruned {
+		if _, stillUsed := remaining[t.Next]; stillUsed {
+			continue
+		}
+		if _, dup := seen[t.Next]; dup {
+			continue
+		}
+		seen[t.Next] = struct{}{}
+		orphaned = append(orphaned, t.Next)
+	}
+
+	return DecayResult{Pruned: pruned, Orphaned: orphaned}
 }
 
 // Merge incorporates a set of seed transitions into the graph.

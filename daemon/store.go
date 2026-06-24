@@ -133,6 +133,55 @@ func (s *store) save(transitions []graph.Transition) error {
 	return nil
 }
 
+// prune deletes decayed transitions and orphaned raw-example templates in a
+// single transaction. Both slices may be empty, in which case it is a no-op.
+func (s *store) prune(transitions []graph.Transition, orphanedTemplates []string) error {
+	if len(transitions) == 0 && len(orphanedTemplates) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if len(transitions) > 0 {
+		stmt, err := tx.Prepare(`DELETE FROM transitions WHERE state = ? AND next = ?`)
+		if err != nil {
+			return fmt.Errorf("prepare delete transition: %w", err)
+		}
+		defer stmt.Close()
+		for _, t := range transitions {
+			stateJSON, err := json.Marshal(t.State)
+			if err != nil {
+				return fmt.Errorf("marshal state: %w", err)
+			}
+			if _, err := stmt.Exec(string(stateJSON), t.Next); err != nil {
+				return fmt.Errorf("exec delete transition: %w", err)
+			}
+		}
+	}
+
+	if len(orphanedTemplates) > 0 {
+		stmt, err := tx.Prepare(`DELETE FROM raw_examples WHERE template = ?`)
+		if err != nil {
+			return fmt.Errorf("prepare delete raw_examples: %w", err)
+		}
+		defer stmt.Close()
+		for _, tmpl := range orphanedTemplates {
+			if _, err := stmt.Exec(tmpl); err != nil {
+				return fmt.Errorf("exec delete raw_examples: %w", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
+}
+
 // clear deletes all transitions and raw examples from the database.
 func (s *store) clear() error {
 	_, err := s.db.Exec(`DELETE FROM transitions`)

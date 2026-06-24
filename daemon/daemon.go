@@ -24,6 +24,7 @@ import (
 const (
 	flushThreshold = 50
 	flushInterval  = 5 * time.Second
+	decayInterval  = 24 * time.Hour
 )
 
 type daemon struct {
@@ -147,6 +148,10 @@ func (d *daemon) start(ctx context.Context) error {
 
 	// Start flush loop.
 	go d.flushLoop(ctx)
+
+	// Prune stale transitions on startup, then once a day.
+	d.decay()
+	go d.decayLoop(ctx)
 
 	// Start IPC listener — clean stale socket first.
 	os.Remove(d.sockPath)
@@ -312,11 +317,7 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	inner[req.Next]++
 	d.rawMu.Unlock()
 
-	d.flushMu.Lock()
-	d.dirty.Add(1)
-	d.flushMu.Unlock()
-
-	if d.dirty.Load() >= flushThreshold {
+	if d.dirty.Add(1) >= flushThreshold {
 		select {
 		case d.flushCh <- struct{}{}:
 		default:
@@ -435,25 +436,40 @@ func (d *daemon) handleReset(conn net.Conn) {
 // flushDB persists the current graph and raw examples to the database.
 // flushMu must be held by the caller. Returns true on success.
 func (d *daemon) flushDB() bool {
-	all := d.g.Load().All()
-	if len(all) == 0 {
-		return true
-	}
-	if err := d.st.save(all); err != nil {
-		d.log.Error("flush failed", "error", err)
-		return false
+	if all := d.g.Load().All(); len(all) > 0 {
+		if err := d.st.save(all); err != nil {
+			d.log.Error("flush failed", "error", err)
+			return false
+		}
 	}
 
-	d.rawMu.RLock()
-	rawMap := d.rawMap
-	d.rawMu.RUnlock()
-	if len(rawMap) > 0 {
-		if err := d.st.saveRawExamples(rawMap); err != nil {
+	// Snapshot the raw map under the read lock, then write outside it.
+	// saveRawExamples iterates the inner maps, so it must not run while
+	// handleRecord can mutate them concurrently under the write lock.
+	rawSnapshot := d.snapshotRawMap()
+	if len(rawSnapshot) > 0 {
+		if err := d.st.saveRawExamples(rawSnapshot); err != nil {
 			d.log.Error("flush raw examples failed", "error", err)
 		}
 	}
 
 	return true
+}
+
+// snapshotRawMap returns a deep copy of the template->raw->count map taken
+// under the read lock, safe to iterate without further synchronization.
+func (d *daemon) snapshotRawMap() map[string]map[string]int {
+	d.rawMu.RLock()
+	defer d.rawMu.RUnlock()
+	snapshot := make(map[string]map[string]int, len(d.rawMap))
+	for tmpl, inner := range d.rawMap {
+		innerCopy := make(map[string]int, len(inner))
+		for raw, count := range inner {
+			innerCopy[raw] = count
+		}
+		snapshot[tmpl] = innerCopy
+	}
+	return snapshot
 }
 
 func (d *daemon) handleExport(conn net.Conn) {
@@ -587,6 +603,47 @@ func (d *daemon) flush() {
 		}
 	}
 	d.log.Debug("flushed")
+}
+
+// decay prunes stale transitions from the graph and the database. It holds
+// flushMu so it never interleaves with a flush, since both write the DB.
+func (d *daemon) decay() {
+	d.flushMu.Lock()
+	defer d.flushMu.Unlock()
+
+	res := d.g.Load().Decay(time.Now(), d.opts.HalfLife())
+	if len(res.Pruned) == 0 && len(res.Orphaned) == 0 {
+		return
+	}
+
+	if len(res.Orphaned) > 0 {
+		d.rawMu.Lock()
+		for _, tmpl := range res.Orphaned {
+			delete(d.rawMap, tmpl)
+		}
+		d.rawMu.Unlock()
+	}
+
+	if err := d.st.prune(res.Pruned, res.Orphaned); err != nil {
+		d.log.Error("decay prune failed", "error", err)
+		return
+	}
+	d.log.Debug("decayed", "pruned", len(res.Pruned), "orphaned", len(res.Orphaned))
+}
+
+// decayLoop runs decay once per day until ctx is cancelled.
+func (d *daemon) decayLoop(ctx context.Context) {
+	ticker := time.NewTicker(decayInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.decay()
+		}
+	}
 }
 
 func (d *daemon) importSeed(path string) error {

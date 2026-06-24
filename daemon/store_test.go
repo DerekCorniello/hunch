@@ -149,6 +149,73 @@ func TestStoreSave_EmptyTransitions(t *testing.T) {
 	}
 }
 
+func TestStorePruneRemovesRowsPermanently(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	st, err := openStore(dbPath)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	defer st.close()
+
+	seed := []graph.Transition{
+		{State: []string{"", "a"}, Next: "stale", Count: 1},
+		{State: []string{"", "b"}, Next: "fresh", Count: 1},
+	}
+	if err := st.save(seed); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	raws := map[string]map[string]int{
+		"stale": {"stale cmd": 1},
+		"fresh": {"fresh cmd": 1},
+	}
+	if err := st.saveRawExamples(raws); err != nil {
+		t.Fatalf("saveRawExamples: %v", err)
+	}
+
+	pruned := []graph.Transition{{State: []string{"", "a"}, Next: "stale"}}
+	if err := st.prune(pruned, []string{"stale"}); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	// Pruned rows must stay gone on reload (no upsert resurrection).
+	loaded, err := st.load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("transitions after prune = %d, want 1", len(loaded))
+	}
+	if loaded[0].Next != "fresh" {
+		t.Errorf("surviving next = %q, want fresh", loaded[0].Next)
+	}
+
+	rawsLoaded, err := st.loadRawExamples()
+	if err != nil {
+		t.Fatalf("loadRawExamples: %v", err)
+	}
+	if _, ok := rawsLoaded["stale"]; ok {
+		t.Error("orphaned raw examples for 'stale' were not pruned")
+	}
+	if _, ok := rawsLoaded["fresh"]; !ok {
+		t.Error("raw examples for 'fresh' should survive")
+	}
+}
+
+func TestStorePruneEmptyIsNoop(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	st, err := openStore(dbPath)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	defer st.close()
+
+	if err := st.prune(nil, nil); err != nil {
+		t.Fatalf("prune(nil, nil): %v", err)
+	}
+}
+
 func TestStoreClear(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 

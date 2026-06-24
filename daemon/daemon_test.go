@@ -492,6 +492,131 @@ func TestDaemonConcurrentRecords(t *testing.T) {
 	}
 }
 
+// TestDaemonConcurrentRecordsTriggerFlush drives sustained concurrent record
+// load whose raw commands all collapse to a single template, so the raw-example
+// inner map grows and is snapshotted by flushDB while handleRecord mutates it.
+// The volume crosses flushThreshold repeatedly, overlapping flushes with
+// ongoing writes. Run under -race, this guards the rawMap snapshot fix.
+// TestDaemonDecayPrunesStaleOnStartup records a very old transition and a
+// fresh one, restarts the daemon (startup decay runs), and verifies the stale
+// transition was pruned from the database while the fresh one survives.
+func TestDaemonDecayPrunesStaleOnStartup(t *testing.T) {
+	opts := LoadConfig()
+	opts.DBPath = filepath.Join(t.TempDir(), "hunch.db")
+	opts.Socket = testSockPath(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		if err := Run(ctx, opts); err != nil && ctx.Err() == nil {
+			t.Logf("daemon error: %v", err)
+		}
+	}()
+	waitForSocket(t, opts.Socket, 5*time.Second)
+
+	stale := time.Now().Add(-365 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	record := func(state []string, next, at string) {
+		conn := dial(t, opts.Socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op": "record", "state": state, "next": next, "at": at,
+		})
+		var resp map[string]interface{}
+		readJSON(t, conn, &resp)
+		conn.Close()
+	}
+	record([]string{"", "old"}, "stale-next", stale)
+	record([]string{"", "new"}, "fresh-next", time.Now().UTC().Format(time.RFC3339))
+
+	cancel()
+	time.Sleep(time.Second) // let shutdown flush to disk
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	go func() {
+		if err := Run(ctx2, opts); err != nil && ctx2.Err() == nil {
+			t.Logf("daemon error: %v", err)
+		}
+	}()
+	waitForSocket(t, opts.Socket, 5*time.Second)
+
+	predict := func(state []string) int {
+		conn := dial(t, opts.Socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op": "predict", "state": state, "limit": 5,
+		})
+		var resp struct {
+			Suggestions []struct{ Template string } `json:"suggestions"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+		return len(resp.Suggestions)
+	}
+
+	if n := predict([]string{"", "old"}); n != 0 {
+		t.Errorf("stale transition survived startup decay: got %d suggestions, want 0", n)
+	}
+	if n := predict([]string{"", "new"}); n != 1 {
+		t.Errorf("fresh transition = %d suggestions, want 1", n)
+	}
+}
+
+func TestDaemonConcurrentRecordsTriggerFlush(t *testing.T) {
+	_, _, socket := startDaemon(t, LoadConfig())
+
+	const workers = 8
+	const perWorker = 100 // 800 records >> flushThreshold (50)
+
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := range perWorker {
+				conn, err := net.DialTimeout("unix", socket, 5*time.Second)
+				if err != nil {
+					t.Errorf("dial: %v", err)
+					return
+				}
+				// All raws normalize to "echo STR" but each raw string is
+				// distinct, so the template's inner raw map keeps growing.
+				_ = json.NewEncoder(conn).Encode(map[string]interface{}{
+					"op":    "record",
+					"state": []string{"", "cmd"},
+					"next":  "echo " + strconv.Itoa(w*perWorker+i),
+				})
+				var resp map[string]interface{}
+				_ = json.NewDecoder(conn).Decode(&resp)
+				conn.Close()
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	conn := dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op":    "predict",
+		"state": []string{"", "cmd"},
+		"limit": 5,
+	})
+	var predResp struct {
+		Suggestions []struct {
+			Template string `json:"template"`
+			Count    int    `json:"count"`
+		} `json:"suggestions"`
+	}
+	readJSON(t, conn, &predResp)
+	conn.Close()
+
+	if len(predResp.Suggestions) != 1 {
+		t.Fatalf("expected 1 suggestion, got %d", len(predResp.Suggestions))
+	}
+	if predResp.Suggestions[0].Template != "echo NUM" {
+		t.Errorf("template = %q, want \"echo NUM\"", predResp.Suggestions[0].Template)
+	}
+	if want := workers * perWorker; predResp.Suggestions[0].Count != want {
+		t.Errorf("count = %d, want %d", predResp.Suggestions[0].Count, want)
+	}
+}
+
 func TestDaemonStaleLockRecovery(t *testing.T) {
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "hunch.lock")
