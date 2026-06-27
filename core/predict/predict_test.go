@@ -10,7 +10,7 @@ import (
 
 func TestPredictEmptyGraphReturnsNil(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	state := types.State{
 		Previous: []types.Command{
@@ -27,7 +27,7 @@ func TestPredictEmptyGraphReturnsNil(t *testing.T) {
 
 func TestPredictEmptyPreviousOnEmptyGraphReturnsNil(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 
@@ -39,7 +39,7 @@ func TestPredictEmptyPreviousOnEmptyGraphReturnsNil(t *testing.T) {
 
 func TestPredictSingleTransition(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	g.Record([]string{"", "git add PATH"}, "git commit FLAG STR", now)
@@ -68,7 +68,7 @@ func TestPredictSingleTransition(t *testing.T) {
 
 func TestPredictMultipleTransitionsRankedByScore(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "git add PATH"}
@@ -98,7 +98,7 @@ func TestPredictMultipleTransitionsRankedByScore(t *testing.T) {
 
 func TestPredictOlderTransitionsRankLower(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	state := []string{"", "cmd"}
 
@@ -127,7 +127,7 @@ func TestPredictOlderTransitionsRankLower(t *testing.T) {
 
 func TestPredictLimitTruncates(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
@@ -160,7 +160,7 @@ func TestPredictLimitTruncates(t *testing.T) {
 
 func TestPredictSmoothingTieBreakerDeterministic(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
@@ -201,7 +201,7 @@ func TestPredictSmoothingTieBreakerDeterministic(t *testing.T) {
 
 func TestPredictDifferentStatesNoCrossContamination(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	g.Record([]string{"", "git add PATH"}, "git commit FLAG STR", now)
@@ -231,67 +231,137 @@ func TestPredictDifferentStatesNoCrossContamination(t *testing.T) {
 	}
 }
 
-func TestPredictCWDDoesNotAffectScore(t *testing.T) {
+// windowState builds the two-command-window state used across the
+// boost/suppression tests.
+func windowState(cwd string, prior types.Outcome) types.State {
+	return types.State{
+		Previous:     []types.Command{{Template: ""}, {Template: "cmd"}},
+		CWD:          cwd,
+		PriorOutcome: prior,
+	}
+}
+
+func TestPredictCWDBoostReordersSuggestions(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	// beta>0 so the CWD boost is active.
+	p := New(g, 720*time.Hour, 0.5, 1.0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
-	g.Record(state, "next", now)
 
-	withCWD := types.State{
-		Previous: []types.Command{
-			{Template: ""},
-			{Template: "cmd"},
-		},
-		CWD: "/some/deep/path",
-	}
-	withoutCWD := types.State{
-		Previous: []types.Command{
-			{Template: ""},
-			{Template: "cmd"},
-		},
+	// "ls" is observed more often overall but never in /proj; "make" is
+	// observed less often but always in /proj.
+	g.RecordObs(graph.Observation{State: state, Next: "ls", At: now})
+	g.RecordObs(graph.Observation{State: state, Next: "ls", At: now})
+	g.RecordObs(graph.Observation{State: state, Next: "ls", At: now})
+	g.RecordObs(graph.Observation{State: state, Next: "make", At: now, CWD: "/proj"})
+	g.RecordObs(graph.Observation{State: state, Next: "make", At: now, CWD: "/proj"})
+
+	// With no CWD, the more frequent "ls" wins.
+	noCWD := p.Predict(windowState("", types.OutcomeUnknown), now, 0)
+	if noCWD[0].Template != "ls" {
+		t.Fatalf("without CWD, top = %q, want ls", noCWD[0].Template)
 	}
 
-	got1 := p.Predict(withCWD, now, 0)
-	got2 := p.Predict(withoutCWD, now, 0)
-
-	if len(got1) != len(got2) {
-		t.Fatalf("Different suggestion count with/without CWD: %d vs %d", len(got1), len(got2))
-	}
-	for i := range got1 {
-		if got1[i].Score != got2[i].Score {
-			t.Errorf("Score differs with CWD at index %d: %f vs %f", i, got1[i].Score, got2[i].Score)
+	// In /proj (and a subdirectory, via ancestor match), "make" is boosted
+	// above "ls".
+	for _, cwd := range []string{"/proj", "/proj/src"} {
+		got := p.Predict(windowState(cwd, types.OutcomeUnknown), now, 0)
+		if got[0].Template != "make" {
+			t.Errorf("in %s, top = %q, want make (CWD boost)", cwd, got[0].Template)
 		}
 	}
 }
 
-func TestPredictOutcomeDoesNotAffectScore(t *testing.T) {
+func TestPredictFailureSuppression(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	// gamma>0 so failing suggestions are suppressed.
+	p := New(g, 720*time.Hour, 0.5, 0, 1.0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
 
-	g.Record(state, "success-cmd", now)
+	// "flaky" is seen more often but almost always fails; "good" less often
+	// but always succeeds.
+	for range 4 {
+		g.RecordObs(graph.Observation{State: state, Next: "flaky", At: now, NextOutcome: graph.OutcomeFailure})
+	}
+	for range 3 {
+		g.RecordObs(graph.Observation{State: state, Next: "good", At: now, NextOutcome: graph.OutcomeSuccess})
+	}
 
-	suggestions := p.Predict(types.State{
-		Previous: []types.Command{
-			{Template: ""},
-			{Template: "cmd"},
-		},
-	}, now, 0)
+	got := p.Predict(windowState("", types.OutcomeUnknown), now, 0)
+	if got[0].Template != "good" {
+		t.Errorf("top = %q, want good (flaky suppressed by failure rate)", got[0].Template)
+	}
+}
 
-	for _, s := range suggestions {
-		if s.Count != 1 {
-			t.Errorf("Outcome leak: count = %d, want 1 (all transitions count equally)", s.Count)
-		}
+func TestPredictPriorOutcomeBoost(t *testing.T) {
+	g := graph.New(2)
+	// delta>0 so prior-outcome context boosts matching transitions.
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 1.0, 0)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cmd"}
+
+	// "retry" usually follows a failed prior command; "next-step" usually
+	// follows a successful one. Equal overall counts.
+	for range 3 {
+		g.RecordObs(graph.Observation{State: state, Next: "retry", At: now, PriorOutcome: graph.OutcomeFailure})
+		g.RecordObs(graph.Observation{State: state, Next: "next-step", At: now, PriorOutcome: graph.OutcomeSuccess})
+	}
+
+	afterFail := p.Predict(windowState("", types.OutcomeFailure), now, 0)
+	if afterFail[0].Template != "retry" {
+		t.Errorf("after failure, top = %q, want retry", afterFail[0].Template)
+	}
+	afterSuccess := p.Predict(windowState("", types.OutcomeSuccess), now, 0)
+	if afterSuccess[0].Template != "next-step" {
+		t.Errorf("after success, top = %q, want next-step", afterSuccess[0].Template)
+	}
+}
+
+func TestPredictAcceptanceBoost(t *testing.T) {
+	g := graph.New(2)
+	// epsilon>0 so confirmed-acceptance boosts matching transitions.
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 1.0)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cmd"}
+
+	// Both seen 3 times; "chosen" was accepted every time, "ignored" never.
+	for range 3 {
+		g.RecordObs(graph.Observation{State: state, Next: "chosen", At: now, Accepted: true})
+		g.RecordObs(graph.Observation{State: state, Next: "ignored", At: now})
+	}
+
+	got := p.Predict(windowState("", types.OutcomeUnknown), now, 0)
+	if got[0].Template != "chosen" {
+		t.Errorf("top = %q, want chosen (acceptance boost)", got[0].Template)
+	}
+}
+
+func TestPredictBoostsKeepScoreBounded(t *testing.T) {
+	g := graph.New(2)
+	// All boosts active at full strength.
+	p := New(g, 720*time.Hour, 0.5, 1.0, 1.0, 1.0, 1.0)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cmd"}
+	g.RecordObs(graph.Observation{State: state, Next: "only", At: now, CWD: "/proj", NextOutcome: graph.OutcomeSuccess, PriorOutcome: graph.OutcomeFailure, Accepted: true})
+
+	got := p.Predict(windowState("/proj", types.OutcomeFailure), now, 0)
+	if len(got) != 1 {
+		t.Fatalf("got %d suggestions, want 1", len(got))
+	}
+	if got[0].Score <= 0 || got[0].Score > 1 {
+		t.Errorf("score %f not in (0, 1] with all boosts active", got[0].Score)
 	}
 }
 
 func TestPredictScoreBounds(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
@@ -315,7 +385,7 @@ func TestPredictScoreBounds(t *testing.T) {
 
 func TestPredictWithLimitOne(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
@@ -336,7 +406,7 @@ func TestPredictWithLimitOne(t *testing.T) {
 
 func TestPredictZeroAlpha(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0)
+	p := New(g, 720*time.Hour, 0, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
@@ -359,7 +429,7 @@ func TestPredictZeroAlpha(t *testing.T) {
 
 func TestPredictNearZeroHalfLife(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 1*time.Nanosecond, 0.5)
+	p := New(g, 1*time.Nanosecond, 0.5, 0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cmd"}
@@ -382,7 +452,7 @@ func TestPredictNearZeroHalfLife(t *testing.T) {
 
 func TestPredictFutureAt(t *testing.T) {
 	g := graph.New(2)
-	p := New(g, 720*time.Hour, 0.5)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
 
 	past := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	future := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

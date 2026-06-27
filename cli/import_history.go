@@ -259,15 +259,10 @@ func buildRawMappings(rawCmds, normalized []string) map[string]map[string]int {
 }
 
 func sendRawExamples(examples map[string]map[string]int) error {
-	type example struct {
-		Template string `json:"template"`
-		Raw      string `json:"raw"`
-		Count    int    `json:"count"`
-	}
-	var list []example
+	var list []ipc.RawExampleJSON
 	for tmpl, inner := range examples {
 		for raw, count := range inner {
-			list = append(list, example{
+			list = append(list, ipc.RawExampleJSON{
 				Template: tmpl,
 				Raw:      raw,
 				Count:    count,
@@ -275,16 +270,11 @@ func sendRawExamples(examples map[string]map[string]int) error {
 		}
 	}
 
-	data, err := json.Marshal(list)
-	if err != nil {
-		return fmt.Errorf("marshal raw examples: %w", err)
-	}
-
 	req := ipc.Request{
-		Op:   "record_raws",
-		Next: string(data),
+		Op:          "record_raws",
+		RawExamples: list,
 	}
-	_, err = sendRequest(req)
+	_, err := sendRequest(req)
 	return err
 }
 

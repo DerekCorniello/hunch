@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -15,7 +18,7 @@ import (
 
 func cmdClient(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: hunch client <op>\n\nops: record, predict, reset, export, normalize, stats")
+		return fmt.Errorf("usage: hunch client <op>\n\nops: record, predict, reset, export, normalize, stats, config, import, serve")
 	}
 
 	switch args[0] {
@@ -35,8 +38,10 @@ func cmdClient(args []string) error {
 		return cmdClientConfig()
 	case "import":
 		return cmdClientImport(args[1:])
+	case "serve":
+		return cmdClientServe(args[1:])
 	default:
-		return fmt.Errorf("unknown client op: %q\n\nops: record, predict, reset, export, normalize, stats, config, import", args[0])
+		return fmt.Errorf("unknown client op: %q\n\nops: record, predict, reset, export, normalize, stats, config, import, serve", args[0])
 	}
 }
 
@@ -91,6 +96,10 @@ func cmdClientRecord(args []string) error {
 	stateStr := fs.String("state", "", "comma-separated list of state templates")
 	next := fs.String("next", "", "the template that followed")
 	at := fs.String("at", "", "RFC 3339 timestamp")
+	cwd := fs.String("cwd", "", "working directory the command ran in")
+	outcome := fs.String("outcome", "", "outcome of the command: success, failure, or empty")
+	priorOutcome := fs.String("prior-outcome", "", "outcome of the preceding command")
+	suggested := fs.String("suggested", "", "raw suggestion hunch had shown (for acceptance detection)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -100,9 +109,13 @@ func cmdClientRecord(args []string) error {
 	}
 
 	req := ipc.Request{
-		Op:    "record",
-		State: splitState(*stateStr),
-		Next:  *next,
+		Op:           "record",
+		State:        splitState(*stateStr),
+		Next:         *next,
+		CWD:          *cwd,
+		Outcome:      *outcome,
+		PriorOutcome: *priorOutcome,
+		Suggested:    *suggested,
 	}
 	if *at != "" {
 		req.At = *at
@@ -126,6 +139,8 @@ func cmdClientPredict(args []string) error {
 	prefix := fs.String("prefix", "", "prefix filter for suggestions")
 	limit := fs.Int("limit", 3, "max suggestions to return")
 	at := fs.String("at", "", "RFC 3339 timestamp")
+	cwd := fs.String("cwd", "", "current working directory (boosts same-directory suggestions)")
+	priorOutcome := fs.String("prior-outcome", "", "outcome of the most recent command")
 	templateOnly := fs.Bool("template", false, "output only the first template string (no JSON)")
 	rawOnly := fs.Bool("raw", false, "output only the first raw command string (no JSON)")
 	if err := fs.Parse(args); err != nil {
@@ -133,9 +148,11 @@ func cmdClientPredict(args []string) error {
 	}
 
 	req := ipc.Request{
-		Op:    "predict",
-		State: splitState(*stateStr),
-		Limit: *limit,
+		Op:           "predict",
+		State:        splitState(*stateStr),
+		Limit:        *limit,
+		CWD:          *cwd,
+		PriorOutcome: *priorOutcome,
 	}
 	if *prefix != "" {
 		req.Prefix = *prefix
@@ -291,4 +308,88 @@ func cmdClientImport(args []string) error {
 	}
 	fmt.Println("ok")
 	return nil
+}
+
+// cmdClientServe runs a persistent prediction loop. It reads one JSON request
+// object per line from stdin and writes one JSON response object per line to
+// stdout, keeping daemon configuration in memory so shell integrations avoid a
+// process spawn per keystroke. See ipc.ServeRequest / ipc.ServeResponse.
+//
+// A missing daemon yields an empty suggestion rather than an error, so the
+// loop survives daemon restarts; the next query reconnects.
+func cmdClientServe(args []string) error {
+	fs := flag.NewFlagSet("hunch client serve", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	opts := daemon.LoadConfig()
+	if opts.Socket == "" {
+		return errors.New("could not determine socket path; set HUNCH_SOCKET")
+	}
+	return runServe(opts.Socket, os.Stdin, os.Stdout)
+}
+
+func runServe(socket string, r io.Reader, w io.Writer) error {
+	in := bufio.NewScanner(r)
+	in.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	out := bufio.NewWriter(w)
+	enc := json.NewEncoder(out)
+
+	for in.Scan() {
+		var req ipc.ServeRequest
+		if err := json.Unmarshal(in.Bytes(), &req); err != nil {
+			// Skip a malformed line rather than breaking the loop; the next
+			// well-formed request still gets served.
+			continue
+		}
+		raws := serveQuery(socket, req)
+		if err := enc.Encode(ipc.ServeResponse{Prefix: req.Prefix, Raws: raws}); err != nil {
+			return err
+		}
+		if err := out.Flush(); err != nil {
+			return err
+		}
+	}
+	return in.Err()
+}
+
+// serveSuggestions is how many ranked suggestions serve requests, so the
+// integration can offer a few to cycle through without re-querying.
+const serveSuggestions = 5
+
+// serveQuery dials the daemon and returns up to serveSuggestions ranked raw
+// commands for the request (each falling back to its template). It returns nil
+// on any error so the serve loop never breaks.
+func serveQuery(socket string, req ipc.ServeRequest) []string {
+	conn, err := daemon.Dial(socket, time.Second)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	pr := ipc.Request{
+		Op:           "predict",
+		State:        req.State,
+		Prefix:       req.Prefix,
+		CWD:          req.CWD,
+		PriorOutcome: req.PriorOutcome,
+		Limit:        serveSuggestions,
+	}
+	if err := json.NewEncoder(conn).Encode(pr); err != nil {
+		return nil
+	}
+	var resp ipc.SuggestionsResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil
+	}
+	raws := make([]string, 0, len(resp.Suggestions))
+	for _, s := range resp.Suggestions {
+		if s.Raw != "" {
+			raws = append(raws, s.Raw)
+		} else {
+			raws = append(raws, s.Template)
+		}
+	}
+	return raws
 }

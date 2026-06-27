@@ -12,6 +12,7 @@ package types
 type Outcome string
 
 const (
+	OutcomeUnknown Outcome = ""
 	OutcomeSuccess Outcome = "success"
 	OutcomeFailure Outcome = "failure"
 )
@@ -31,12 +32,14 @@ type Command struct {
 
 // State represents the context used to generate predictions.
 //
-// Previous is the recent command history, most recent last. CWD is
-// the current working directory, which callers may use to scope or
-// weight suggestions.
+// Previous is the recent command history, most recent last. CWD is the
+// current working directory, used to boost transitions seen in the same
+// location. PriorOutcome is the outcome of the most recent command, used
+// to weight transitions by the prior-command result.
 type State struct {
-	Previous []Command
-	CWD      string
+	Previous     []Command
+	CWD          string
+	PriorOutcome Outcome
 }
 
 // Suggestion is a predicted next command.

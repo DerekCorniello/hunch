@@ -143,6 +143,98 @@ func TestDaemonRecordPredictRoundtrip(t *testing.T) {
 	}
 }
 
+// predictTop returns the top template the daemon predicts for the given state,
+// optionally scoped to a CWD and prior outcome.
+func predictTop(t *testing.T, socket string, state []string, cwd, priorOutcome string) string {
+	t.Helper()
+	conn := dial(t, socket)
+	defer conn.Close()
+	req := map[string]interface{}{"op": "predict", "state": state, "limit": 1}
+	if cwd != "" {
+		req["cwd"] = cwd
+	}
+	if priorOutcome != "" {
+		req["prior_outcome"] = priorOutcome
+	}
+	writeJSON(t, conn, req)
+	var r struct {
+		Suggestions []struct {
+			Template string `json:"template"`
+		} `json:"suggestions"`
+	}
+	readJSON(t, conn, &r)
+	if len(r.Suggestions) == 0 {
+		return ""
+	}
+	return r.Suggestions[0].Template
+}
+
+func recordObs(t *testing.T, socket string, fields map[string]interface{}) {
+	t.Helper()
+	conn := dial(t, socket)
+	defer conn.Close()
+	fields["op"] = "record"
+	writeJSON(t, conn, fields)
+	var resp map[string]interface{}
+	readJSON(t, conn, &resp)
+	if resp["ok"] != true {
+		t.Fatalf("record response: %v", resp)
+	}
+}
+
+func TestDaemonCWDBoostThroughDaemon(t *testing.T) {
+	_, _, socket := startDaemon(t, LoadConfig())
+	st := []string{"", "cd"}
+
+	for range 3 {
+		recordObs(t, socket, map[string]interface{}{"state": st, "next": "ls"})
+	}
+	for range 2 {
+		recordObs(t, socket, map[string]interface{}{"state": st, "next": "make", "cwd": "/proj"})
+	}
+
+	if got := predictTop(t, socket, st, "", ""); got != "ls" {
+		t.Errorf("no CWD: top = %q, want ls", got)
+	}
+	if got := predictTop(t, socket, st, "/proj/sub", ""); got != "make" {
+		t.Errorf("in /proj/sub (ancestor match): top = %q, want make", got)
+	}
+}
+
+func TestDaemonOutcomeSuppressionThroughDaemon(t *testing.T) {
+	_, _, socket := startDaemon(t, LoadConfig())
+	st := []string{"", "run"}
+
+	for range 4 {
+		recordObs(t, socket, map[string]interface{}{"state": st, "next": "flaky", "outcome": "failure"})
+	}
+	for range 3 {
+		recordObs(t, socket, map[string]interface{}{"state": st, "next": "good", "outcome": "success"})
+	}
+
+	if got := predictTop(t, socket, st, "", ""); got != "good" {
+		t.Errorf("top = %q, want good (flaky suppressed)", got)
+	}
+}
+
+func TestDaemonAcceptanceBoostThroughDaemon(t *testing.T) {
+	_, _, socket := startDaemon(t, LoadConfig())
+	st := []string{"", "cd"}
+
+	// Equal counts, but "make ..." is confirmed each time: the executed
+	// command ("make build") and the shown suggestion ("make test") differ in
+	// their argument yet share the template "make STR", so it still counts as
+	// an acceptance.
+	for range 3 {
+		recordObs(t, socket, map[string]interface{}{"state": st, "next": "make build", "suggested": "make test"})
+		recordObs(t, socket, map[string]interface{}{"state": st, "next": "ls"})
+	}
+
+	if got := predictTop(t, socket, st, "", ""); got != "make STR" {
+		t.Errorf("top = %q, want \"make STR\" (acceptance boost despite edited arg)", got)
+	}
+}
+
 func TestDaemonPersistence(t *testing.T) {
 	opts := LoadConfig()
 	dbPath := filepath.Join(t.TempDir(), "hunch.db")
@@ -430,9 +522,9 @@ func TestDaemonConcurrentRecords(t *testing.T) {
 	_, _, socket := startDaemon(t, LoadConfig())
 
 	var (
-		wg    sync.WaitGroup
-		mu    sync.Mutex
-		errs  []error
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
 	)
 	for range 50 {
 		wg.Add(1)

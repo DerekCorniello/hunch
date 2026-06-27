@@ -288,8 +288,9 @@ func ensureConfig() error {
 # Override SQLite database path (default: <DataDir>/hunch.db)
 # db_path = "/var/lib/hunch/hunch.db"
 
-# Keys that accept the current ghost-text suggestion
-# zsh/fish/pwsh: right, end. bash: tab.
+# Keys that accept the current ghost-text suggestion (zsh inline mode)
+# zsh: right, end (and Alt-n / Alt-p to cycle). bash/fish/powershell show a
+# post-command hint instead and have no accept key.
 # accept_keys = ["right", "end"]
 
 # Path to the daemon binary

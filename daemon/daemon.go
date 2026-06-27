@@ -17,6 +17,7 @@ import (
 	"github.com/DerekCorniello/hunch/core/graph"
 	"github.com/DerekCorniello/hunch/core/normalize"
 	"github.com/DerekCorniello/hunch/core/predict"
+	"github.com/DerekCorniello/hunch/core/redact"
 	"github.com/DerekCorniello/hunch/core/types"
 	"github.com/DerekCorniello/hunch/ipc"
 )
@@ -33,10 +34,11 @@ type daemon struct {
 	pred     atomic.Pointer[predict.Predictor]
 	st       *store
 	log      *slog.Logger
-	parents  []string // cached result of MergeParents
+	parents  []string        // cached result of MergeParents
+	redactor *redact.Matcher // drops sensitive commands before recording
 
-	rawMap   map[string]map[string]int // template → raw → count
-	rawMu    sync.RWMutex
+	rawMap map[string]map[string]int // template → raw → count
+	rawMu  sync.RWMutex
 
 	lock     Locker
 	listener net.Listener
@@ -55,11 +57,12 @@ type daemon struct {
 // error occurs. On shutdown the graph is flushed to SQLite before returning.
 func Run(ctx context.Context, opts Options) error {
 	d := &daemon{
-		opts:    opts,
-		log:     slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel(opts.LogLevel)})),
-		flushCh: make(chan struct{}, 1),
-		parents: normalize.MergeParents(opts.ExtraParents),
-		rawMap:  make(map[string]map[string]int),
+		opts:     opts,
+		log:      slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLogLevel(opts.LogLevel)})),
+		flushCh:  make(chan struct{}, 1),
+		parents:  normalize.MergeParents(opts.ExtraParents),
+		redactor: redact.New(opts.Ignore),
+		rawMap:   make(map[string]map[string]int),
 	}
 	d.g.Store(graph.New(2))
 
@@ -144,7 +147,7 @@ func (d *daemon) start(ctx context.Context) error {
 	}
 
 	// Build predictor.
-	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha))
+	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha, d.opts.Beta, d.opts.Gamma, d.opts.Delta, d.opts.Epsilon))
 
 	// Start flush loop.
 	go d.flushLoop(ctx)
@@ -299,6 +302,16 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 		at = time.Now()
 	}
 
+	// Drop commands that look like they carry secrets: neither the
+	// transition nor the raw example is recorded, so nothing sensitive is
+	// ever persisted or suggested back. Reported as OK so the caller is
+	// unaware which commands were skipped.
+	if d.redactor.IsSensitive(req.Next) {
+		d.log.Debug("skipping sensitive command")
+		_ = writeOK(conn)
+		return
+	}
+
 	// Normalize state and next before recording.
 	normalizedState := make([]string, len(req.State))
 	for i, raw := range req.State {
@@ -306,7 +319,20 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	}
 	normalizedNext := normalize.Normalize(req.Next, d.parents)
 
-	d.g.Load().Record(normalizedState, normalizedNext, at)
+	// Acceptance: the executed command confirms a suggestion when its
+	// template matches the template hunch last showed for this state, even
+	// if the user edited a value (normalization collapses STR/PATH/etc.).
+	accepted := req.Suggested != "" && normalize.Normalize(req.Suggested, d.parents) == normalizedNext
+
+	d.g.Load().RecordObs(graph.Observation{
+		State:        normalizedState,
+		Next:         normalizedNext,
+		At:           at,
+		CWD:          req.CWD,
+		NextOutcome:  graph.Outcome(req.Outcome),
+		PriorOutcome: graph.Outcome(req.PriorOutcome),
+		Accepted:     accepted,
+	})
 
 	d.rawMu.Lock()
 	inner, ok := d.rawMap[normalizedNext]
@@ -328,18 +354,11 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 }
 
 func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
-	var examples []struct {
-		Template string `json:"template"`
-		Raw      string `json:"raw"`
-		Count    int    `json:"count"`
-	}
-	if err := json.Unmarshal([]byte(req.Next), &examples); err != nil {
-		_ = writeError(conn, fmt.Sprintf("bad examples: %v", err))
-		return
-	}
-
 	d.rawMu.Lock()
-	for _, ex := range examples {
+	for _, ex := range req.RawExamples {
+		if ex.Template == "" || ex.Raw == "" {
+			continue
+		}
 		inner, ok := d.rawMap[ex.Template]
 		if !ok {
 			inner = make(map[string]int)
@@ -367,7 +386,11 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 		prev[i] = types.Command{Template: normalize.Normalize(raw, d.parents)}
 	}
 
-	st := types.State{Previous: prev}
+	st := types.State{
+		Previous:     prev,
+		CWD:          req.CWD,
+		PriorOutcome: types.Outcome(req.PriorOutcome),
+	}
 	// Fetch all suggestions (limit=0 means no limit), then filter by
 	// prefix server-side, then cap to the requested limit.
 	suggestions := d.pred.Load().Predict(st, at, 0)
@@ -420,7 +443,7 @@ func (d *daemon) handleReset(conn net.Conn) {
 	d.flushMu.Lock()
 	newG := graph.New(2)
 	d.g.Store(newG)
-	d.pred.Store(predict.New(newG, d.opts.HalfLife(), d.opts.Alpha))
+	d.pred.Store(predict.New(newG, d.opts.HalfLife(), d.opts.Alpha, d.opts.Beta, d.opts.Gamma, d.opts.Delta, d.opts.Epsilon))
 	if err := d.st.clear(); err != nil {
 		d.log.Error("clear store", "error", err)
 	}
@@ -562,7 +585,7 @@ func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
 		_ = writeError(conn, fmt.Sprintf("import failed: %v", err))
 		return
 	}
-	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha))
+	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha, d.opts.Beta, d.opts.Gamma, d.opts.Delta, d.opts.Epsilon))
 	_ = writeOK(conn)
 }
 

@@ -4,7 +4,7 @@ LDFLAGS := -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(VERSION)"
 
 BIN := hunch
 
-.PHONY: all build test test-race vet lint lint-shell clean install hooks check
+.PHONY: all build test test-race test-zsh test-e2e vet lint lint-shell clean install hooks check
 
 all: hooks build
 
@@ -16,6 +16,14 @@ test:
 
 test-race:
 	$(GO) test -race -count=1 ./...
+
+# Functional tests for the zsh integration's display-decision logic.
+test-zsh:
+	@which zsh >/dev/null 2>&1 && zsh integrations/zsh/hunch_test.zsh || echo "zsh not found, skipping"
+
+# End-to-end CLI/daemon/IPC smoke test.
+test-e2e:
+	bash scripts/e2e-test.sh
 
 vet:
 	$(GO) vet ./...
@@ -40,7 +48,7 @@ hooks:
 		echo "configured git hooks (.githooks/)"; \
 	fi
 
-check: test test-race vet lint lint-shell
+check: test test-race vet lint lint-shell test-zsh test-e2e
 	@echo "all checks passed"
 
 clean:

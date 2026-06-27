@@ -16,18 +16,65 @@ import (
 	"time"
 )
 
+// Outcome classifies a command's exit result for soft weighting. The empty
+// value means "unknown" and contributes to no outcome counter, so commands
+// recorded without an exit code (or interrupted by a signal) never skew the
+// success/failure signal.
+type Outcome string
+
+const (
+	OutcomeUnknown Outcome = ""
+	OutcomeSuccess Outcome = "success"
+	OutcomeFailure Outcome = "failure"
+)
+
 // Transition represents a single observed state → next transition.
 type Transition struct {
 	State    []string  // last N templates, most recent last
 	Next     string    // normalized template that followed
 	Count    int       // times this (state, next) pair was recorded
 	LastSeen time.Time // most recent observation
+
+	// CWDs is the histogram of working directories in which Next was run,
+	// used for the location-affinity boost. May be nil.
+	CWDs map[string]int
+	// NextSuccess/NextFailure count how often Next itself exited
+	// successfully or with failure, used to suppress chronically-failing
+	// suggestions.
+	NextSuccess int
+	NextFailure int
+	// PriorSuccess/PriorFailure count how often this transition followed a
+	// prior command that succeeded or failed, used to weight by prior
+	// outcome context.
+	PriorSuccess int
+	PriorFailure int
+	// Accepted counts how often the executed command matched a suggestion
+	// hunch had shown for this state, used to boost confirmed transitions.
+	Accepted int
+}
+
+// Observation is a single recorded transition with its soft-signal context.
+type Observation struct {
+	State []string  // previous templates, most recent last
+	Next  string    // normalized template that followed
+	At    time.Time // observation time
+
+	CWD          string  // directory Next ran in; "" if unknown
+	NextOutcome  Outcome // exit result of Next
+	PriorOutcome Outcome // exit result of the command preceding Next
+	Accepted     bool    // Next matched a suggestion hunch had shown
 }
 
 // entry is the internal storage unit for a single (state, next) pair.
 type entry struct {
-	count    int
-	lastSeen time.Time
+	count        int
+	lastSeen     time.Time
+	cwds         map[string]int
+	nextSuccess  int
+	nextFailure  int
+	priorSuccess int
+	priorFailure int
+	accepted     int
 }
 
 // Graph stores observed command transitions.
@@ -50,33 +97,62 @@ func New(windowSize int) *Graph {
 	}
 }
 
-// Record records a transition from state to next at time at.
+// Record records a transition from state to next at time at, with no
+// CWD or outcome context. It is a convenience wrapper around RecordObs.
 //
 // The state slice is used as-is; callers are responsible for padding
 // it to the window size (e.g. with empty-string sentinels for the
 // first command of a session).
 func (g *Graph) Record(state []string, next string, at time.Time) {
-	if next == "" {
+	g.RecordObs(Observation{State: state, Next: next, At: at})
+}
+
+// RecordObs records an observed transition along with its soft-signal
+// context (working directory and outcomes). Unknown outcomes and an empty
+// CWD contribute to no counter.
+func (g *Graph) RecordObs(obs Observation) {
+	if obs.Next == "" {
 		return
 	}
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	sk := stateKey(state)
+	sk := stateKey(obs.State)
 	inner, ok := g.m[sk]
 	if !ok {
 		inner = make(map[string]*entry)
 		g.m[sk] = inner
 	}
-	e, ok := inner[next]
+	e, ok := inner[obs.Next]
 	if !ok {
 		e = &entry{}
-		inner[next] = e
+		inner[obs.Next] = e
 	}
 	e.count++
-	if at.After(e.lastSeen) {
-		e.lastSeen = at
+	if obs.At.After(e.lastSeen) {
+		e.lastSeen = obs.At
+	}
+	if obs.CWD != "" {
+		if e.cwds == nil {
+			e.cwds = make(map[string]int)
+		}
+		e.cwds[obs.CWD]++
+	}
+	switch obs.NextOutcome {
+	case OutcomeSuccess:
+		e.nextSuccess++
+	case OutcomeFailure:
+		e.nextFailure++
+	}
+	switch obs.PriorOutcome {
+	case OutcomeSuccess:
+		e.priorSuccess++
+	case OutcomeFailure:
+		e.priorFailure++
+	}
+	if obs.Accepted {
+		e.accepted++
 	}
 }
 
@@ -93,16 +169,40 @@ func (g *Graph) Transitions(state []string) []Transition {
 
 	result := make([]Transition, 0, len(inner))
 	for next, e := range inner {
-		stateCopy := make([]string, len(state))
-		copy(stateCopy, state)
-		result = append(result, Transition{
-			State:    stateCopy,
-			Next:     next,
-			Count:    e.count,
-			LastSeen: e.lastSeen,
-		})
+		result = append(result, entryToTransition(state, next, e))
 	}
 	return result
+}
+
+// entryToTransition builds an exported Transition from an internal entry,
+// deep-copying mutable fields so the caller cannot mutate graph state.
+func entryToTransition(state []string, next string, e *entry) Transition {
+	stateCopy := make([]string, len(state))
+	copy(stateCopy, state)
+	return Transition{
+		State:        stateCopy,
+		Next:         next,
+		Count:        e.count,
+		LastSeen:     e.lastSeen,
+		CWDs:         copyCWDs(e.cwds),
+		NextSuccess:  e.nextSuccess,
+		NextFailure:  e.nextFailure,
+		PriorSuccess: e.priorSuccess,
+		PriorFailure: e.priorFailure,
+		Accepted:     e.accepted,
+	}
+}
+
+// copyCWDs returns a copy of a CWD histogram, or nil if empty.
+func copyCWDs(m map[string]int) map[string]int {
+	if len(m) == 0 {
+		return nil
+	}
+	c := make(map[string]int, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
+	return c
 }
 
 // DecayResult reports what Decay removed.
@@ -198,6 +298,17 @@ func (g *Graph) Merge(seed []Transition) error {
 		if t.LastSeen.After(e.lastSeen) {
 			e.lastSeen = t.LastSeen
 		}
+		for cwd, c := range t.CWDs {
+			if e.cwds == nil {
+				e.cwds = make(map[string]int)
+			}
+			e.cwds[cwd] += c
+		}
+		e.nextSuccess += t.NextSuccess
+		e.nextFailure += t.NextFailure
+		e.priorSuccess += t.PriorSuccess
+		e.priorFailure += t.PriorFailure
+		e.accepted += t.Accepted
 	}
 	return nil
 }
@@ -221,15 +332,8 @@ func (g *Graph) All() []Transition {
 	for sk, inner := range g.m {
 		state := strings.Split(sk, "\x00")
 		for next, e := range inner {
-			stateCopy := make([]string, len(state))
-			copy(stateCopy, state)
 			buf = append(buf, twk{
-				tr: Transition{
-					State:    stateCopy,
-					Next:     next,
-					Count:    e.count,
-					LastSeen: e.lastSeen,
-				},
+				tr:       entryToTransition(state, next, e),
 				stateKey: sk,
 			})
 		}

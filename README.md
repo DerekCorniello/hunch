@@ -81,7 +81,7 @@ hunch init zsh --auto
 hunch init zsh
 # Prints: source /path/to/hunch/integrations/zsh/hunch.zsh
 
-# bash — Tab-accept
+# bash
 hunch init bash
 
 # fish
@@ -91,19 +91,34 @@ hunch init fish
 hunch init powershell
 ```
 
-What each integration provides:
+### Support matrix
 
-| Shell | UX | Accept | Record hook |
-|-------|----|--------|-------------|
-| zsh | Inline ghost text via `POSTDISPLAY` | Right arrow, End | `precmd` |
-| bash | Tab inserts suggestion | Tab | `PROMPT_COMMAND` |
-| fish | Ghost text via `commandline` manipulation | Right arrow, End | `fish_postexec` |
-| PowerShell | Disables native prediction, shows suggestion on Right/End | Right arrow, End | `Invoke-HunchRecord` via key binding |
+Each shell gets the best experience it can support reliably. Inline ghost text
+(suggestions as you type) needs a per-keystroke prediction path and a
+ghost-text primitive; only zsh has both, so the other shells fall back to a dim
+post-command hint showing the most likely next command.
+
+| Shell | UX | Mechanism | Accept / cycle |
+|-------|----|-----------|----------------|
+| zsh | **Inline ghost text** as you type | persistent `serve` coprocess + `POSTDISPLAY` | Right/End to accept; Alt-n / Alt-p to cycle |
+| bash | Post-command hint line | `client predict` in `PROMPT_COMMAND` | — (type or copy) |
+| fish | Post-command hint line | `client predict` in `fish_postexec` | — (fish's own autosuggestions still apply) |
+| PowerShell | Post-command hint line | `client predict` in a wrapped `prompt` | — |
+
+> **Why not inline everywhere?** bash has no ghost-text primitive without a
+> large add-on like ble.sh; fish's native autosuggestion engine owns inline
+> text and resists external injection; PowerShell's native inline predictor
+> (PSReadLine `ICommandPredictor`) requires a compiled binary module. A native
+> PowerShell predictor module is possible future work. The post-command hint is
+> robust everywhere and never fights the shell's own line editor.
 
 All integrations:
 - Auto-start the daemon when sourced
+- Capture each command's exit code and working directory, feeding the
+  location-affinity and outcome-weighting signals
 - Send recorded commands to the daemon asynchronously (non-blocking)
 - Use the `HUNCH_BIN` environment variable to locate the `hunch` binary (default: `hunch`)
+- Honor `HUNCH_HINT=0` (bash/fish/PowerShell) to silence the hint line
 - Silently degrade if the daemon is unavailable
 
 ---
@@ -228,8 +243,20 @@ hunch predict --state "git add,git commit" --limit 5
 | `HUNCH_DAEMON_BIN` | Daemon binary path | (same as `hunch`) |
 | `HUNCH_HALF_LIFE_HOURS` | Decay half-life | `720` (30 days) |
 | `HUNCH_ALPHA` | Additive smoothing | `0.5` |
-| `HUNCH_EXTRA_PARENTS` | Extra parent commands | (none) |
+| `HUNCH_BETA` | CWD-affinity boost strength | `0.75` |
+| `HUNCH_GAMMA` | Failure-rate suppression strength | `0.5` |
+| `HUNCH_DELTA` | Prior-outcome boost strength | `0.5` |
+| `HUNCH_EPSILON` | Confirmed-acceptance boost strength | `0.5` |
+| `HUNCH_EXTRA_PARENTS` | Extra parent commands (comma-separated) | (none) |
+| `HUNCH_IGNORE` | Extra regexes for sensitive commands to never record (comma-separated) | (none) |
 | `HUNCH_LOG_LEVEL` | Log level | `info` |
+| `HUNCH_HINT` | Set to `0` to silence the post-command hint (bash/fish/PowerShell) | `1` |
+
+Each scoring strength (`beta`/`gamma`/`delta`/`epsilon`) is a soft,
+multiplicative adjustment that is the identity when its signal is absent; set
+any to `0` to disable that signal. Sensitive commands matching a built-in or
+`HUNCH_IGNORE` pattern are never recorded (neither the transition nor the raw
+command), so secrets are not persisted or suggested back.
 
 ### Config file
 
@@ -246,8 +273,13 @@ socket = "/run/user/1000/hunch.sock"
 db_path = "/var/lib/hunch/hunch.db"
 half_life_hours = 720
 alpha = 0.5
+beta = 0.75    # CWD-affinity boost
+gamma = 0.5    # failure-rate suppression
+delta = 0.5    # prior-outcome boost
+epsilon = 0.5  # confirmed-acceptance boost
 accept_keys = ["right", "end"]
 extra_parents = ["mycli", "teamtool"]
+ignore = ['(?i)--api-token']  # extra sensitive-command patterns to never record
 log_level = "info"
 ```
 

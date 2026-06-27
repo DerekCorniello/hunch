@@ -63,7 +63,7 @@ Commands:
   init [shell]         Set up shell integration (auto-detects shell from $SHELL)
     --auto             Automatically append source line to rc file
   daemon <action>      Manage the daemon (run|start|stop|status)
-  client <op>          Send an IPC operation (record|predict|reset|export|normalize|stats|config|import)
+  client <op>          Send an IPC operation (record|predict|reset|export|normalize|stats|config|import|serve)
   import-history <sh>  Import shell history to jump-start predictions
   uninstall            Remove hunch from your system
     --yes, -y          Skip confirmation prompt

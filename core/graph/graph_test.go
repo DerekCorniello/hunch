@@ -32,6 +32,74 @@ func TestGraphRecordAndTransitions(t *testing.T) {
 	}
 }
 
+func TestGraphRecordObsAccumulatesSignals(t *testing.T) {
+	g := New(2)
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cd"}
+
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: OutcomeSuccess, PriorOutcome: OutcomeFailure, Accepted: true})
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: OutcomeFailure, PriorOutcome: OutcomeFailure})
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/other", NextOutcome: OutcomeSuccess, PriorOutcome: OutcomeSuccess, Accepted: true})
+
+	tr := g.Transitions(state)
+	if len(tr) != 1 {
+		t.Fatalf("Transitions = %d, want 1", len(tr))
+	}
+	got := tr[0]
+	if got.Count != 3 {
+		t.Errorf("Count = %d, want 3", got.Count)
+	}
+	if got.CWDs["/proj"] != 2 || got.CWDs["/other"] != 1 {
+		t.Errorf("CWDs = %v, want map[/proj:2 /other:1]", got.CWDs)
+	}
+	if got.NextSuccess != 2 || got.NextFailure != 1 {
+		t.Errorf("next outcomes = (%d,%d), want (2,1)", got.NextSuccess, got.NextFailure)
+	}
+	if got.PriorSuccess != 1 || got.PriorFailure != 2 {
+		t.Errorf("prior outcomes = (%d,%d), want (1,2)", got.PriorSuccess, got.PriorFailure)
+	}
+	if got.Accepted != 2 {
+		t.Errorf("Accepted = %d, want 2", got.Accepted)
+	}
+
+	// Unknown outcome and empty CWD must touch no counter.
+	g.RecordObs(Observation{State: state, Next: "make", At: now})
+	tr = g.Transitions(state)
+	if tr[0].NextSuccess != 2 || tr[0].NextFailure != 1 || len(tr[0].CWDs) != 2 {
+		t.Errorf("unknown-signal record changed counters: %+v", tr[0])
+	}
+}
+
+func TestGraphMergeCombinesSignals(t *testing.T) {
+	g := New(2)
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cd"}
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: OutcomeSuccess, Accepted: true})
+
+	seed := []Transition{{
+		State: state, Next: "make", Count: 5, LastSeen: now,
+		CWDs:        map[string]int{"/proj": 4, "/seed": 1},
+		NextSuccess: 3, NextFailure: 2, PriorSuccess: 1, PriorFailure: 1, Accepted: 2,
+	}}
+	if err := g.Merge(seed); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+
+	got := g.Transitions(state)[0]
+	if got.Count != 6 {
+		t.Errorf("Count = %d, want 6 (1 + 5)", got.Count)
+	}
+	if got.CWDs["/proj"] != 5 || got.CWDs["/seed"] != 1 {
+		t.Errorf("merged CWDs = %v, want map[/proj:5 /seed:1]", got.CWDs)
+	}
+	if got.Accepted != 3 {
+		t.Errorf("merged Accepted = %d, want 3 (1 + 2)", got.Accepted)
+	}
+	if got.NextSuccess != 4 || got.NextFailure != 2 {
+		t.Errorf("merged next outcomes = (%d,%d), want (4,2)", got.NextSuccess, got.NextFailure)
+	}
+}
+
 func TestGraphMultipleRecordsIncrementCount(t *testing.T) {
 	g := New(2)
 

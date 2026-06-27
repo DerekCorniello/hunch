@@ -1,107 +1,75 @@
-# Hunch requires PowerShell 7.4+
-if ($PSVersionTable.PSVersion.Major -lt 7 -or ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -lt 4)) {
-	Write-Warning "Hunch requires PowerShell 7.4+. Current: $($PSVersionTable.PSVersion). Integration will not load."
-	return
-}
-# PSReadLine 2.3+ is required for inline predictions.
-if (-not (Get-Module -ListAvailable PSReadLine | Where-Object { $_.Version.Major -ge 2 -and $_.Version.Minor -ge 3 })) {
-	Write-Warning "Hunch requires PSReadLine 2.3+. Install: Install-Module PSReadLine -Force -Scope CurrentUser"
-	return
-}
+# Hunch PowerShell integration.
+#
+# PowerShell's native inline predictor (PSReadLine ICommandPredictor) requires
+# a compiled binary module, which this script-only integration cannot provide,
+# so hunch shows a dim post-command hint for the most likely next command
+# instead. Set $env:HUNCH_HINT = '0' to disable the hint.
 
 $HunchBin = if ($env:HUNCH_BIN) { $env:HUNCH_BIN } else { "hunch" }
 $script:HunchPrev1 = ""
 $script:HunchPrev2 = ""
-$script:HunchSuggestion = ""
-$script:HunchPrefix = ""
+$script:HunchPrevOutcome = ""
+$script:HunchLastId = -1
 
 function Invoke-HunchDaemonEnsure {
 	if (& $HunchBin daemon status 2>$null) { return }
 	Start-Process -FilePath $HunchBin -ArgumentList "daemon", "start" -WindowStyle Hidden
 }
 
-function Invoke-HunchRecord {
-	param([string]$Cmd, [int]$ExitCode)
-
-	if ([string]::IsNullOrEmpty($Cmd)) { return }
-
-	$at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-
-	Start-Process -FilePath $HunchBin -ArgumentList @(
-		"client", "record",
-		"--state", "$script:HunchPrev1,$script:HunchPrev2",
-		"--next", $Cmd,
-		"--at", $at
-	) -WindowStyle Hidden -RedirectStandardOutput $null -RedirectStandardError $null
-
-	$script:HunchPrev1 = $script:HunchPrev2
-	$script:HunchPrev2 = $Cmd
-}
-
-function Invoke-HunchClearSuggestion {
-	$script:HunchSuggestion = ""
-	$script:HunchPrefix = ""
-}
-
-function Invoke-HunchPredict {
-	param([string]$Buffer)
-
-	if ([string]::IsNullOrEmpty($Buffer)) {
-		Invoke-HunchClearSuggestion
-		return
-	}
-
+function Invoke-HunchHint {
+	if ($env:HUNCH_HINT -eq '0') { return }
 	try {
-		$suggestion = & $HunchBin client predict `
+		$s = & $HunchBin client predict `
 			--state "$script:HunchPrev1,$script:HunchPrev2" `
-			--prefix $Buffer `
-			--limit 1 `
-			--template 2>$null
-
-		if ($suggestion -and $suggestion -ne $Buffer) {
-			$script:HunchSuggestion = $suggestion
-			$script:HunchPrefix = $Buffer
-			return
-		}
+			--cwd "$PWD" `
+			--prior-outcome "$script:HunchPrevOutcome" `
+			--limit 1 --raw 2>$null
+		if ($s) { Write-Host "hunch > $s" -ForegroundColor DarkGray }
 	} catch {}
-	Invoke-HunchClearSuggestion
 }
 
-function Invoke-HunchAccept {
-	$line = ""
-	$cursor = 0
-	[Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+function Invoke-HunchPrompt {
+	param([bool]$Ok)
 
-	Invoke-HunchPredict -Buffer $line
-	if ([string]::IsNullOrEmpty($script:HunchSuggestion)) {
-		return $false
+	$last = Get-History -Count 1
+	if ($last -and $last.Id -ne $script:HunchLastId) {
+		$script:HunchLastId = $last.Id
+		$cmd = $last.CommandLine
+		if (-not [string]::IsNullOrWhiteSpace($cmd)) {
+			$outcome = if ($Ok) { "success" } else { "failure" }
+			$at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+			Start-Process -FilePath $HunchBin -ArgumentList @(
+				"client", "record",
+				"--state", "$script:HunchPrev1,$script:HunchPrev2",
+				"--next", $cmd,
+				"--cwd", "$PWD",
+				"--outcome", $outcome,
+				"--prior-outcome", $script:HunchPrevOutcome,
+				"--at", $at
+			) -WindowStyle Hidden
+			$script:HunchPrev1 = $script:HunchPrev2
+			$script:HunchPrev2 = $cmd
+			$script:HunchPrevOutcome = $outcome
+		}
 	}
-
-	if ($line -ne $script:HunchPrefix -or $cursor -ne $line.Length) {
-		Invoke-HunchClearSuggestion
-		return $false
-	}
-
-	[Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, $script:HunchSuggestion)
-	[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($script:HunchSuggestion.Length)
-	Invoke-HunchClearSuggestion
-	return $true
+	Invoke-HunchHint
 }
 
-[Microsoft.PowerShell.PSConsoleReadLine]::SetKeyHandler([ConsoleKey]::RightArrow, {
-	param($key, $arg)
-	if (-not (Invoke-HunchAccept)) {
-		[Microsoft.PowerShell.PSConsoleReadLine]::ForwardChar($key, $arg)
+# Wrap the existing prompt so hunch records the last command and prints its hint
+# before the prompt renders. Guard against double-wrapping if re-sourced.
+if (-not $script:HunchPromptInstalled) {
+	$script:HunchPromptInstalled = $true
+	$script:HunchOrigPrompt = $function:prompt
+	function prompt {
+		$ok = $?
+		Invoke-HunchPrompt -Ok $ok
+		if ($script:HunchOrigPrompt) {
+			& $script:HunchOrigPrompt
+		}
+		else {
+			"PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) "
+		}
 	}
-})
-
-[Microsoft.PowerShell.PSConsoleReadLine]::SetKeyHandler([ConsoleKey]::End, {
-	param($key, $arg)
-	if (-not (Invoke-HunchAccept)) {
-		[Microsoft.PowerShell.PSConsoleReadLine]::EndOfLine($key, $arg)
-	}
-})
-
-Set-PSReadLineOption -PredictionSource None
+}
 
 Invoke-HunchDaemonEnsure

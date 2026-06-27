@@ -8,12 +8,45 @@ import (
 
 // Request is a parsed IPC request.
 type Request struct {
-	Op     string   `json:"op"`
-	State  []string `json:"state,omitempty"`
-	Next   string   `json:"next,omitempty"`
-	At     string   `json:"at,omitempty"`
-	Prefix string   `json:"prefix,omitempty"`
-	Limit  int      `json:"limit,omitempty"`
+	Op           string           `json:"op"`
+	State        []string         `json:"state,omitempty"`
+	Next         string           `json:"next,omitempty"`
+	At           string           `json:"at,omitempty"`
+	Prefix       string           `json:"prefix,omitempty"`
+	Limit        int              `json:"limit,omitempty"`
+	RawExamples  []RawExampleJSON `json:"raw_examples,omitempty"`
+	CWD          string           `json:"cwd,omitempty"`           // working dir: where Next ran (record) or current (predict)
+	Outcome      string           `json:"outcome,omitempty"`       // outcome of Next (record): "success"/"failure"/""
+	PriorOutcome string           `json:"prior_outcome,omitempty"` // outcome of the command preceding Next / most recent command
+	Suggested    string           `json:"suggested,omitempty"`     // raw suggestion hunch last showed (record): for acceptance detection
+}
+
+// RawExampleJSON is a single template→raw observation carried by the
+// record_raws op, used to bulk-load raw command examples (e.g. from
+// shell-history import) without smuggling a JSON blob through Next.
+type RawExampleJSON struct {
+	Template string `json:"template"`
+	Raw      string `json:"raw"`
+	Count    int    `json:"count"`
+}
+
+// ServeRequest is one line of input to the `hunch client serve` loop, one
+// JSON object per line. JSON framing keeps commands containing tabs or
+// newlines from corrupting the stream.
+type ServeRequest struct {
+	Prefix       string   `json:"prefix"`                  // current command-line buffer
+	State        []string `json:"state,omitempty"`         // previous raw commands, most recent last
+	CWD          string   `json:"cwd,omitempty"`           // current working directory
+	PriorOutcome string   `json:"prior_outcome,omitempty"` // outcome of the most recent command
+}
+
+// ServeResponse is one line of output from the serve loop. Prefix is echoed
+// verbatim so the integration can discard responses for a buffer the user has
+// already moved past. Raws holds the ranked raw suggestions (most likely
+// first); the integration shows the first and lets the user cycle the rest.
+type ServeResponse struct {
+	Prefix string   `json:"prefix"`
+	Raws   []string `json:"raws"`
 }
 
 // SuggestionJSON is the JSON shape for a single suggestion in a predict response.

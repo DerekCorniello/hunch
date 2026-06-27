@@ -22,6 +22,42 @@ func TestOpenStore(t *testing.T) {
 	}
 }
 
+func TestMigrateSetsVersionAndIsIdempotent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	st, err := openStore(dbPath)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+
+	var version int
+	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	if version != len(migrations) {
+		t.Errorf("user_version = %d, want %d", version, len(migrations))
+	}
+	st.close()
+
+	// Reopening must be a no-op: no migration re-runs, schema still usable.
+	st2, err := openStore(dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer st2.close()
+
+	var version2 int
+	if err := st2.db.QueryRow(`PRAGMA user_version`).Scan(&version2); err != nil {
+		t.Fatalf("read user_version after reopen: %v", err)
+	}
+	if version2 != len(migrations) {
+		t.Errorf("user_version after reopen = %d, want %d", version2, len(migrations))
+	}
+	if _, err := st2.load(); err != nil {
+		t.Errorf("load after reopen: %v", err)
+	}
+}
+
 func TestStoreSaveAndLoad(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
@@ -62,6 +98,64 @@ func TestStoreSaveAndLoad(t *testing.T) {
 	}
 	if loaded[0].Count != 5 {
 		t.Errorf("count = %d, want 5", loaded[0].Count)
+	}
+}
+
+func TestStoreCWDAndOutcomeRoundtrip(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	st, err := openStore(dbPath)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	defer st.close()
+
+	seed := []graph.Transition{{
+		State:        []string{"", "cmd"},
+		Next:         "make",
+		Count:        7,
+		CWDs:         map[string]int{"/proj": 5, "/other": 2},
+		NextSuccess:  4,
+		NextFailure:  3,
+		PriorSuccess: 6,
+		PriorFailure: 1,
+	}}
+	if err := st.save(seed); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	loaded, err := st.load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 transition, got %d", len(loaded))
+	}
+	got := loaded[0]
+	if got.NextSuccess != 4 || got.NextFailure != 3 || got.PriorSuccess != 6 || got.PriorFailure != 1 {
+		t.Errorf("outcome counters = (%d,%d,%d,%d), want (4,3,6,1)",
+			got.NextSuccess, got.NextFailure, got.PriorSuccess, got.PriorFailure)
+	}
+	if got.CWDs["/proj"] != 5 || got.CWDs["/other"] != 2 {
+		t.Errorf("cwd histogram = %v, want map[/proj:5 /other:2]", got.CWDs)
+	}
+
+	// Pruning a transition must also drop its CWD histogram rows.
+	if err := st.prune(seed, nil); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	loaded, err = st.load()
+	if err != nil {
+		t.Fatalf("load after prune: %v", err)
+	}
+	if len(loaded) != 0 {
+		t.Fatalf("expected 0 transitions after prune, got %d", len(loaded))
+	}
+	var cwdRows int
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM transition_cwd`).Scan(&cwdRows); err != nil {
+		t.Fatalf("count transition_cwd: %v", err)
+	}
+	if cwdRows != 0 {
+		t.Errorf("transition_cwd rows after prune = %d, want 0", cwdRows)
 	}
 }
 

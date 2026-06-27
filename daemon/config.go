@@ -22,7 +22,12 @@ type Options struct {
 	DaemonBin     string   `toml:"daemon_bin"`
 	HalfLifeHours int      `toml:"half_life_hours"`
 	Alpha         float64  `toml:"alpha"`
+	Beta          float64  `toml:"beta"`    // CWD-affinity boost strength
+	Gamma         float64  `toml:"gamma"`   // failure-rate suppression strength
+	Delta         float64  `toml:"delta"`   // prior-outcome boost strength
+	Epsilon       float64  `toml:"epsilon"` // confirmed-acceptance boost strength
 	ExtraParents  []string `toml:"extra_parents"`
+	Ignore        []string `toml:"ignore"` // extra regexes for sensitive commands to never record
 	LogLevel      string   `toml:"log_level"`
 	SeedPath      string   `toml:"-"` // CLI-only, not in config file
 }
@@ -32,6 +37,10 @@ func defaults() Options {
 	return Options{
 		HalfLifeHours: 720,
 		Alpha:         0.5,
+		Beta:          0.75,
+		Gamma:         0.5,
+		Delta:         0.5,
+		Epsilon:       0.5,
 		LogLevel:      "info",
 	}
 }
@@ -44,7 +53,9 @@ func defaults() Options {
 //
 //	HUNCH_SOCKET, HUNCH_DB_PATH, HUNCH_ACCEPT_KEYS (comma-sep),
 //	HUNCH_DAEMON_BIN, HUNCH_HALF_LIFE_HOURS, HUNCH_ALPHA,
-//	HUNCH_EXTRA_PARENTS (comma-sep), HUNCH_LOG_LEVEL
+//	HUNCH_BETA, HUNCH_GAMMA, HUNCH_DELTA, HUNCH_EPSILON,
+//	HUNCH_EXTRA_PARENTS (comma-sep), HUNCH_IGNORE (comma-sep regexes),
+//	HUNCH_LOG_LEVEL
 func LoadConfig() Options {
 	opts := defaults()
 	log := slog.Default()
@@ -82,8 +93,31 @@ func LoadConfig() Options {
 			opts.Alpha = f
 		}
 	}
+	if v := os.Getenv("HUNCH_BETA"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			opts.Beta = f
+		}
+	}
+	if v := os.Getenv("HUNCH_GAMMA"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			opts.Gamma = f
+		}
+	}
+	if v := os.Getenv("HUNCH_DELTA"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			opts.Delta = f
+		}
+	}
+	if v := os.Getenv("HUNCH_EPSILON"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			opts.Epsilon = f
+		}
+	}
 	if v := os.Getenv("HUNCH_EXTRA_PARENTS"); v != "" {
 		opts.ExtraParents = strings.Split(v, ",")
+	}
+	if v := os.Getenv("HUNCH_IGNORE"); v != "" {
+		opts.Ignore = strings.Split(v, ",")
 	}
 	if v := os.Getenv("HUNCH_LOG_LEVEL"); v != "" {
 		opts.LogLevel = v

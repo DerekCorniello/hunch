@@ -3,8 +3,7 @@ if not set -q HUNCH_BIN
 end
 set -g _hunch_prev1 ""
 set -g _hunch_prev2 ""
-set -g _hunch_suggestion ""
-set -g _hunch_suggestion_prefix ""
+set -g _hunch_prev_outcome ""
 
 function _hunch_daemon_ensure --on-event fish_prompt
 	functions -e _hunch_daemon_ensure
@@ -13,81 +12,49 @@ function _hunch_daemon_ensure --on-event fish_prompt
 	end
 end
 
+# _hunch_outcome echoes the outcome for an exit code: 0 is success; a signal
+# kill (128 < code <= 192) is neutral (empty); any other non-zero is failure.
+function _hunch_outcome
+	if test $argv[1] -eq 0
+		echo success
+	else if test $argv[1] -gt 128 -a $argv[1] -le 192
+		echo ""
+	else
+		echo failure
+	end
+end
+
+# _hunch_hint prints a dim one-line hint for the most likely next command.
+# fish's native autosuggestion engine owns inline ghost text, so hunch shows a
+# post-command hint instead. Set HUNCH_HINT=0 to disable.
+function _hunch_hint
+	test "$HUNCH_HINT" = 0; and return
+	set -l s ($HUNCH_BIN client predict \
+		--state "$_hunch_prev1,$_hunch_prev2" \
+		--cwd "$PWD" \
+		--prior-outcome "$_hunch_prev_outcome" \
+		--limit 1 --raw 2>/dev/null)
+	test -n "$s"; and echo (set_color brblack)"hunch ▸ $s"(set_color normal)
+end
+
 function _hunch_record --on-event fish_postexec
 	set -l exit_code $status
 	set -l cmd $argv[1]
-	test -n "$cmd" || return
+	test -n "$cmd"; or return
 
+	set -l outcome (_hunch_outcome $exit_code)
 	$HUNCH_BIN client record \
 		--state "$_hunch_prev1,$_hunch_prev2" \
 		--next "$cmd" \
+		--cwd "$PWD" \
+		--outcome "$outcome" \
+		--prior-outcome "$_hunch_prev_outcome" \
 		--at (date -u +%Y-%m-%dT%H:%M:%SZ) \
 		>/dev/null 2>&1 &
 
 	set _hunch_prev1 $_hunch_prev2
 	set _hunch_prev2 $cmd
+	set _hunch_prev_outcome $outcome
+
+	_hunch_hint
 end
-
-function _hunch_clear_suggestion
-	set -g _hunch_suggestion ""
-	set -g _hunch_suggestion_prefix ""
-end
-
-function _hunch_predict
-	set -l cmdline (commandline -p)
-	test -n "$cmdline"
-	or begin
-		_hunch_clear_suggestion
-		return 1
-	end
-
-	set -l suggestion
-	set suggestion ($HUNCH_BIN client predict \
-		--state "$_hunch_prev1,$_hunch_prev2" \
-		--prefix "$cmdline" \
-		--limit 1 \
-		--template 2>/dev/null)
-
-	if test -n "$suggestion" -a "$suggestion" != "$cmdline"
-		set -g _hunch_suggestion $suggestion
-		set -g _hunch_suggestion_prefix $cmdline
-		return 0
-	else
-		_hunch_clear_suggestion
-		return 1
-	end
-end
-
-function _hunch_accept
-	set -l cmdline (commandline -p)
-	set -l cursor (commandline -C)
-
-	if test -n "$_hunch_suggestion" -a "$cmdline" = "$_hunch_suggestion_prefix" -a "$cursor" -eq (string length "$cmdline")
-		commandline -r "$_hunch_suggestion"
-		commandline -C (string length "$_hunch_suggestion")
-		_hunch_clear_suggestion
-		return 0
-	end
-
-	_hunch_clear_suggestion
-	return 1
-end
-
-function _hunch_right
-	if not _hunch_accept
-		commandline -f forward-char
-	end
-end
-
-function _hunch_end
-	if not _hunch_accept
-		commandline -f end-of-line
-	end
-end
-
-bind right _hunch_right
-bind end _hunch_end
-bind --mode default right _hunch_right
-bind --mode default end _hunch_end
-bind --mode visual right _hunch_right
-bind --mode visual end _hunch_end

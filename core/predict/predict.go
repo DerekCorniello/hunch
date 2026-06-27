@@ -15,17 +15,28 @@ type Predictor struct {
 	g        *graph.Graph
 	halfLife time.Duration
 	alpha    float64
+	beta     float64
+	gamma    float64
+	delta    float64
+	epsilon  float64
 }
 
 // New constructs a Predictor.
 //
 // halfLife is the duration for an observation to halve in effective weight.
-// alpha is the additive smoothing constant (default 0.5 in the daemon config).
-func New(g *graph.Graph, halfLife time.Duration, alpha float64) *Predictor {
+// alpha is the additive smoothing constant. beta, gamma, delta, and epsilon
+// are the strengths of the CWD-affinity boost, failure-rate suppression,
+// prior-outcome boost, and confirmed-acceptance boost respectively; pass 0 to
+// disable any of them.
+func New(g *graph.Graph, halfLife time.Duration, alpha, beta, gamma, delta, epsilon float64) *Predictor {
 	return &Predictor{
 		g:        g,
 		halfLife: halfLife,
 		alpha:    alpha,
+		beta:     beta,
+		gamma:    gamma,
+		delta:    delta,
+		epsilon:  epsilon,
 	}
 }
 
@@ -33,8 +44,9 @@ func New(g *graph.Graph, halfLife time.Duration, alpha float64) *Predictor {
 // descending score then descending count as tie-breaker.
 //
 // limit caps the number of suggestions returned; 0 means no limit.
-// CWD on the state is never used in scoring (locked design decision).
-// All transitions are scored regardless of outcome (locked design decision).
+// state.CWD and state.PriorOutcome, when set, softly boost transitions seen
+// in the same directory or following the same prior outcome; they never
+// exclude transitions, so an unknown CWD/outcome leaves ranking unchanged.
 func (p *Predictor) Predict(state types.State, at time.Time, limit int) []types.Suggestion {
 	templates := make([]string, len(state.Previous))
 	for i, cmd := range state.Previous {
@@ -46,7 +58,17 @@ func (p *Predictor) Predict(state types.State, at time.Time, limit int) []types.
 		return nil
 	}
 
-	scored := scoreTransitions(transitions, p.halfLife, p.alpha, at)
+	scored := scoreTransitions(transitions, scoreParams{
+		halfLife:     p.halfLife,
+		alpha:        p.alpha,
+		beta:         p.beta,
+		gamma:        p.gamma,
+		delta:        p.delta,
+		epsilon:      p.epsilon,
+		cwd:          state.CWD,
+		priorOutcome: graph.Outcome(state.PriorOutcome),
+		at:           at,
+	})
 
 	if limit > 0 && len(scored) > limit {
 		scored = scored[:limit]
