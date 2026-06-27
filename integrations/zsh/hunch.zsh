@@ -131,9 +131,12 @@ _hunch_start_coproc() {
 	setopt local_options no_monitor
 	coproc "$_HUNCH_BIN" client serve 2>/dev/null || return 1
 	_HUNCH_PID=$!
-	# Move the coproc pipe ends to stable numbered fds we control.
-	exec {_HUNCH_W}>&p 2>/dev/null || { _hunch_stop_coproc; return 1; }
-	exec {_HUNCH_R}<&p 2>/dev/null || { _hunch_stop_coproc; return 1; }
+	# Move the coproc pipe ends to stable numbered fds we control. The 2>
+	# redirection is scoped to the { } group so it suppresses only errors from
+	# the dup; a bare `exec ... 2>/dev/null` would permanently send the shell's
+	# own stderr to /dev/null.
+	{ exec {_HUNCH_W}>&p } 2>/dev/null || { _hunch_stop_coproc; return 1; }
+	{ exec {_HUNCH_R}<&p } 2>/dev/null || { _hunch_stop_coproc; return 1; }
 	zle -F "$_HUNCH_R" _hunch_on_response
 	return 0
 }
@@ -141,11 +144,12 @@ _hunch_start_coproc() {
 _hunch_stop_coproc() {
 	if [[ -n "$_HUNCH_R" ]]; then
 		zle -F "$_HUNCH_R" 2>/dev/null
-		exec {_HUNCH_R}<&- 2>/dev/null
+		# { } group so the 2> scopes to the close, not the shell's stderr.
+		{ exec {_HUNCH_R}<&- } 2>/dev/null
 		_HUNCH_R=""
 	fi
 	if [[ -n "$_HUNCH_W" ]]; then
-		exec {_HUNCH_W}>&- 2>/dev/null
+		{ exec {_HUNCH_W}>&- } 2>/dev/null
 		_HUNCH_W=""
 	fi
 	if [[ -n "$_HUNCH_PID" ]]; then
