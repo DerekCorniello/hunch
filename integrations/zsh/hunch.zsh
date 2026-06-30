@@ -230,6 +230,11 @@ _hunch_on_response() {
 # $BUFFER and $CURSOR are valid. It discards stale responses (the echoed prefix
 # no longer matches the buffer) and otherwise repaints the ghost text.
 _hunch_apply_response() {
+	# If keys are still queued (e.g. the rest of an escape sequence like
+	# up-arrow ^[[A), bail out to avoid splitting the sequence. The response
+	# will be discarded; the next buffer change triggers a fresh query anyway.
+	(( KEYS_QUEUED_COUNT > 0 )) && return
+
 	# Drop stale responses for a buffer the user has already moved past.
 	[[ "$_HUNCH_RESP_PREFIX" != "$BUFFER" ]] && return
 
@@ -325,6 +330,22 @@ _hunch_accept_end() {
 	fi
 }
 
+# Up/down arrow wrappers: clear ghost text first, then delegate to whatever
+# was previously handling the key (fzf, atuin, default history, etc.).
+# This prevents the async fd handler from corrupting the ^[[A escape sequence
+# and also ensures POSTDISPLAY is gone before the history widget redraws.
+_hunch_navigate_up() {
+	_hunch_clear_display
+	_HUNCH_SENT=$'\0'
+	zle "${_HUNCH_ORIG_WIDGET[$KEYMAP:$KEYS]:-.up-line-or-history}"
+}
+
+_hunch_navigate_down() {
+	_hunch_clear_display
+	_HUNCH_SENT=$'\0'
+	zle "${_HUNCH_ORIG_WIDGET[$KEYMAP:$KEYS]:-.down-line-or-history}"
+}
+
 _hunch_record() {
 	# Capture the exit status first: any command below would overwrite $?.
 	local exit_code=$?
@@ -372,6 +393,8 @@ _hunch_line_finish() {
 
 zle -N _hunch_accept_or_forward
 zle -N _hunch_accept_end
+zle -N _hunch_navigate_up
+zle -N _hunch_navigate_down
 zle -N _hunch_line_finish
 zle -N _hunch_cycle_next
 zle -N _hunch_cycle_prev
@@ -426,6 +449,10 @@ _hunch_capture_orig_widget() {
 }
 
 for _hunch_km in main vicmd viins; do
+	_hunch_capture_orig_widget "$_hunch_km" '^[[A'
+	_hunch_capture_orig_widget "$_hunch_km" '^[[B'
+	_hunch_capture_orig_widget "$_hunch_km" '^[OA'
+	_hunch_capture_orig_widget "$_hunch_km" '^[OB'
 	_hunch_capture_orig_widget "$_hunch_km" '^[[C'
 	_hunch_capture_orig_widget "$_hunch_km" '^[[F'
 done
@@ -437,6 +464,17 @@ bindkey -M vicmd '^[[C' _hunch_accept_or_forward
 bindkey -M vicmd '^[[F' _hunch_accept_end
 bindkey -M viins '^[[C' _hunch_accept_or_forward
 bindkey -M viins '^[[F' _hunch_accept_end
+
+# Wrap up/down arrows to clear ghost text before delegating to history
+# navigation. Handles both CSI (^[[A/B) and SS3 (^[OA/B) sequences since
+# different terminal emulators send different forms.
+for _hunch_km in main vicmd viins; do
+	bindkey -M "$_hunch_km" '^[[A' _hunch_navigate_up
+	bindkey -M "$_hunch_km" '^[[B' _hunch_navigate_down
+	bindkey -M "$_hunch_km" '^[OA' _hunch_navigate_up
+	bindkey -M "$_hunch_km" '^[OB' _hunch_navigate_down
+done
+unset _hunch_km
 
 # Cycle keys (Alt-n / Alt-p by default) in every keymap.
 _hunch_km=""

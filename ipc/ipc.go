@@ -21,13 +21,18 @@ type Request struct {
 	Suggested    string           `json:"suggested,omitempty"`     // raw suggestion hunch last showed (record): for acceptance detection
 }
 
-// RawExampleJSON is a single template→raw observation carried by the
+// RawExampleJSON is a single state+template→raw observation carried by the
 // record_raws op, used to bulk-load raw command examples (e.g. from
 // shell-history import) without smuggling a JSON blob through Next.
+// State holds the normalized prior-command templates (same ordering as the
+// graph state); omit or leave empty for a global (stateless) example.
+// LastSeen is a Unix timestamp; 0 means "use server time".
 type RawExampleJSON struct {
-	Template string `json:"template"`
-	Raw      string `json:"raw"`
-	Count    int    `json:"count"`
+	State    []string `json:"state,omitempty"`
+	Template string   `json:"template"`
+	Raw      string   `json:"raw"`
+	Count    int      `json:"count"`
+	LastSeen int64    `json:"last_seen,omitempty"`
 }
 
 // ServeRequest is one line of input to the `hunch client serve` loop, one

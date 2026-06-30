@@ -242,37 +242,48 @@ func sendSeed(transitions []graph.Transition) error {
 	return err
 }
 
-func buildRawMappings(rawCmds, normalized []string) map[string]map[string]int {
-	m := make(map[string]map[string]int)
-	for i, tmpl := range normalized {
-		if tmpl == "" || rawCmds[i] == "" {
-			continue
-		}
-		inner, ok := m[tmpl]
-		if !ok {
-			inner = make(map[string]int)
-			m[tmpl] = inner
-		}
-		inner[rawCmds[i]]++
+func buildRawMappings(rawCmds, normalized []string) []ipc.RawExampleJSON {
+	type key struct {
+		prev1, prev2 string
+		template     string
+		raw          string
 	}
-	return m
+	counts := make(map[key]int)
+
+	// Mirror the state-tracking logic in buildTransitions so the raw
+	// examples are keyed by the same prior-command context as the graph.
+	var prev1, prev2 string
+	for i, tmpl := range normalized {
+		if tmpl != "" && rawCmds[i] != "" {
+			counts[key{prev1, prev2, tmpl, rawCmds[i]}]++
+		}
+		prev1 = prev2
+		prev2 = tmpl
+	}
+
+	list := make([]ipc.RawExampleJSON, 0, len(counts))
+	for k, count := range counts {
+		var state []string
+		if k.prev1 != "" {
+			state = append(state, k.prev1)
+		}
+		if k.prev2 != "" {
+			state = append(state, k.prev2)
+		}
+		list = append(list, ipc.RawExampleJSON{
+			State:    state,
+			Template: k.template,
+			Raw:      k.raw,
+			Count:    count,
+		})
+	}
+	return list
 }
 
-func sendRawExamples(examples map[string]map[string]int) error {
-	var list []ipc.RawExampleJSON
-	for tmpl, inner := range examples {
-		for raw, count := range inner {
-			list = append(list, ipc.RawExampleJSON{
-				Template: tmpl,
-				Raw:      raw,
-				Count:    count,
-			})
-		}
-	}
-
+func sendRawExamples(examples []ipc.RawExampleJSON) error {
 	req := ipc.Request{
 		Op:          "record_raws",
-		RawExamples: list,
+		RawExamples: examples,
 	}
 	_, err := sendRequest(req)
 	return err

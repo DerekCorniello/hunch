@@ -15,6 +15,15 @@ type store struct {
 	db *sql.DB
 }
 
+// rawRecord is one row from the raw_examples table.
+type rawRecord struct {
+	State    []string
+	Template string
+	Raw      string
+	Count    int
+	LastSeen time.Time
+}
+
 // migrations is the ordered list of schema migrations. Each entry is
 // applied exactly once, in order, and SQLite's user_version PRAGMA records
 // how many have run. Append new migrations to the end — never edit or
@@ -58,6 +67,28 @@ var migrations = []string{
 	`,
 	// 3: per-transition acceptance counter for the confirmed-suggestion boost.
 	`ALTER TABLE transitions ADD COLUMN accepted INTEGER NOT NULL DEFAULT 0;`,
+	// 4: add state-conditioning and recency to raw_examples. Recreate the
+	// table with a new primary key (state, template, raw) so raw suggestions
+	// can be looked up conditioned on the prior-command context that produced
+	// them, and scored by recency. Existing rows migrate with state=[] and
+	// last_seen=now so they retain full weight immediately.
+	`
+	CREATE TABLE raw_examples_new (
+		state     TEXT    NOT NULL DEFAULT '[]',
+		template  TEXT    NOT NULL,
+		raw       TEXT    NOT NULL,
+		count     INTEGER NOT NULL,
+		last_seen INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (state, template, raw)
+	);
+	CREATE INDEX IF NOT EXISTS idx_raw_examples_template
+		ON raw_examples_new(template);
+	INSERT INTO raw_examples_new (state, template, raw, count, last_seen)
+		SELECT '[]', template, raw, count, strftime('%s', 'now')
+		FROM raw_examples;
+	DROP TABLE raw_examples;
+	ALTER TABLE raw_examples_new RENAME TO raw_examples;
+	`,
 }
 
 // open opens the SQLite database at path, applies any pending schema
@@ -319,36 +350,42 @@ func (s *store) clear() error {
 	return err
 }
 
-// loadRawExamples reads every template→raw mapping from the database.
-func (s *store) loadRawExamples() (map[string]map[string]int, error) {
-	rows, err := s.db.Query(`SELECT template, raw, count FROM raw_examples`)
+// loadRawExamples reads every raw example from the database.
+func (s *store) loadRawExamples() ([]rawRecord, error) {
+	rows, err := s.db.Query(`SELECT state, template, raw, count, last_seen FROM raw_examples`)
 	if err != nil {
 		return nil, fmt.Errorf("query raw_examples: %w", err)
 	}
 	defer rows.Close()
 
-	m := make(map[string]map[string]int)
+	var records []rawRecord
 	for rows.Next() {
-		var tmpl, raw string
+		var stateJSON, template, raw string
 		var count int
-		if err := rows.Scan(&tmpl, &raw, &count); err != nil {
+		var lastSeenUnix int64
+		if err := rows.Scan(&stateJSON, &template, &raw, &count, &lastSeenUnix); err != nil {
 			return nil, fmt.Errorf("scan raw_example: %w", err)
 		}
-		inner, ok := m[tmpl]
-		if !ok {
-			inner = make(map[string]int)
-			m[tmpl] = inner
+		var state []string
+		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+			return nil, fmt.Errorf("unmarshal raw_example state: %w", err)
 		}
-		inner[raw] = count
+		records = append(records, rawRecord{
+			State:    state,
+			Template: template,
+			Raw:      raw,
+			Count:    count,
+			LastSeen: time.Unix(lastSeenUnix, 0),
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate raw_examples: %w", err)
 	}
-	return m, nil
+	return records, nil
 }
 
-// saveRawExamples upserts a batch of template→raw mappings.
-func (s *store) saveRawExamples(examples map[string]map[string]int) error {
+// saveRawExamples upserts a batch of raw example records.
+func (s *store) saveRawExamples(records []rawRecord) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -356,21 +393,28 @@ func (s *store) saveRawExamples(examples map[string]map[string]int) error {
 	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO raw_examples (template, raw, count)
-		VALUES (?, ?, ?)
-		ON CONFLICT(template, raw) DO UPDATE SET
-			count = excluded.count
+		INSERT INTO raw_examples (state, template, raw, count, last_seen)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(state, template, raw) DO UPDATE SET
+			count = excluded.count,
+			last_seen = excluded.last_seen
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare upsert: %w", err)
 	}
 	defer stmt.Close()
 
-	for tmpl, inner := range examples {
-		for raw, count := range inner {
-			if _, err := stmt.Exec(tmpl, raw, count); err != nil {
-				return fmt.Errorf("exec upsert: %w", err)
-			}
+	for _, rec := range records {
+		stateJSON, err := json.Marshal(rec.State)
+		if err != nil {
+			return fmt.Errorf("marshal state: %w", err)
+		}
+		var lastSeenUnix int64
+		if !rec.LastSeen.IsZero() {
+			lastSeenUnix = rec.LastSeen.Unix()
+		}
+		if _, err := stmt.Exec(string(stateJSON), rec.Template, rec.Raw, rec.Count, lastSeenUnix); err != nil {
+			return fmt.Errorf("exec upsert: %w", err)
 		}
 	}
 

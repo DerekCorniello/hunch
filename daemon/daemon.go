@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -28,6 +29,13 @@ const (
 	decayInterval  = 24 * time.Hour
 )
 
+// rawEntry tracks the accumulated count and most recent observation time
+// for one (stateKey, template, raw) triple.
+type rawEntry struct {
+	count    int
+	lastSeen time.Time
+}
+
 type daemon struct {
 	opts     Options
 	g        atomic.Pointer[graph.Graph]
@@ -37,7 +45,9 @@ type daemon struct {
 	parents  []string        // cached result of MergeParents
 	redactor *redact.Matcher // drops sensitive commands before recording
 
-	rawMap map[string]map[string]int // template → raw → count
+	// rawMap: outerKey → raw → rawEntry
+	// outerKey = rawOuterKey(stateTemplates, template)
+	rawMap map[string]map[string]rawEntry
 	rawMu  sync.RWMutex
 
 	lock     Locker
@@ -53,6 +63,19 @@ type daemon struct {
 	pidPath  string
 }
 
+// rawOuterKey builds the map key for rawMap from a prior-command state slice
+// and the next-command template. Empty strings in state are ignored so that
+// `["", "git add PATH"]` and `["git add PATH"]` produce the same key.
+func rawOuterKey(state []string, template string) string {
+	var nonEmpty []string
+	for _, s := range state {
+		if s != "" {
+			nonEmpty = append(nonEmpty, s)
+		}
+	}
+	return strings.Join(nonEmpty, "\x00") + "\x00\x00" + template
+}
+
 // Run starts the daemon and blocks until ctx is cancelled or a fatal
 // error occurs. On shutdown the graph is flushed to SQLite before returning.
 func Run(ctx context.Context, opts Options) error {
@@ -62,7 +85,7 @@ func Run(ctx context.Context, opts Options) error {
 		flushCh:  make(chan struct{}, 1),
 		parents:  normalize.MergeParents(opts.ExtraParents),
 		redactor: redact.New(opts.Ignore),
-		rawMap:   make(map[string]map[string]int),
+		rawMap:   make(map[string]map[string]rawEntry),
 	}
 	d.g.Store(graph.New(2))
 
@@ -133,11 +156,19 @@ func (d *daemon) start(ctx context.Context) error {
 		return fmt.Errorf("merge loaded transitions: %w", err)
 	}
 
-	rawExamples, err := st.loadRawExamples()
+	rawRecords, err := st.loadRawExamples()
 	if err != nil {
 		return fmt.Errorf("load raw examples: %w", err)
 	}
-	d.rawMap = rawExamples
+	for _, rec := range rawRecords {
+		outerKey := rawOuterKey(rec.State, rec.Template)
+		inner, ok := d.rawMap[outerKey]
+		if !ok {
+			inner = make(map[string]rawEntry)
+			d.rawMap[outerKey] = inner
+		}
+		inner[rec.Raw] = rawEntry{count: rec.Count, lastSeen: rec.LastSeen}
+	}
 
 	// Seed import on first run.
 	if d.opts.SeedPath != "" && len(transitions) == 0 {
@@ -334,13 +365,19 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 		Accepted:     accepted,
 	})
 
+	// Store raw example conditioned on the normalized state, so lookup
+	// during prediction can prefer raws seen in the same workflow context.
 	d.rawMu.Lock()
-	inner, ok := d.rawMap[normalizedNext]
+	outerKey := rawOuterKey(normalizedState, normalizedNext)
+	inner, ok := d.rawMap[outerKey]
 	if !ok {
-		inner = make(map[string]int)
-		d.rawMap[normalizedNext] = inner
+		inner = make(map[string]rawEntry)
+		d.rawMap[outerKey] = inner
 	}
-	inner[req.Next]++
+	prev := inner[req.Next]
+	prev.count++
+	prev.lastSeen = at
+	inner[req.Next] = prev
 	d.rawMu.Unlock()
 
 	if d.dirty.Add(1) >= flushThreshold {
@@ -354,17 +391,30 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 }
 
 func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
+	now := time.Now()
 	d.rawMu.Lock()
 	for _, ex := range req.RawExamples {
 		if ex.Template == "" || ex.Raw == "" {
 			continue
 		}
-		inner, ok := d.rawMap[ex.Template]
-		if !ok {
-			inner = make(map[string]int)
-			d.rawMap[ex.Template] = inner
+		var lastSeen time.Time
+		if ex.LastSeen > 0 {
+			lastSeen = time.Unix(ex.LastSeen, 0)
+		} else {
+			lastSeen = now
 		}
-		inner[ex.Raw] += ex.Count
+		outerKey := rawOuterKey(ex.State, ex.Template)
+		inner, ok := d.rawMap[outerKey]
+		if !ok {
+			inner = make(map[string]rawEntry)
+			d.rawMap[outerKey] = inner
+		}
+		prev := inner[ex.Raw]
+		prev.count += ex.Count
+		if lastSeen.After(prev.lastSeen) {
+			prev.lastSeen = lastSeen
+		}
+		inner[ex.Raw] = prev
 	}
 	d.rawMu.Unlock()
 
@@ -397,6 +447,17 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 
 	if req.Prefix != "" {
 		suggestions = filterByPrefix(suggestions, req.Prefix, d.parents)
+	} else if len(suggestions) == 0 {
+		// Empty buffer with no state match: fall back through progressively
+		// shorter history windows so there's always something to show.
+		for trim := 1; trim <= len(prev) && len(suggestions) == 0; trim++ {
+			fallback := types.State{
+				Previous:     prev[trim:],
+				CWD:          st.CWD,
+				PriorOutcome: st.PriorOutcome,
+			}
+			suggestions = d.pred.Load().Predict(fallback, at, 0)
+		}
 	}
 
 	limit := req.Limit
@@ -407,36 +468,131 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 		suggestions = suggestions[:limit]
 	}
 
-	// Fill in raw commands from the raw mapping. Multiple raw commands can
-	// share a template (e.g. "cat a.txt" and "cat b.txt" both normalize to
-	// "cat STR"). When a prefix was given, prefer the most common raw that
-	// literally starts with it over the template's overall most common raw,
-	// so the suggestion text can actually extend what the user is typing.
+	// Extract variable-value argument tokens from the recent raw prior
+	// commands. These are used below to boost raw suggestions that reuse
+	// the same file names, script names, etc. from the immediately preceding
+	// context (option 2).
+	argTokens := collectArgTokens(req.State, d.parents)
+
+	// Build the clean (non-empty) state template list for conditioned lookup.
+	stateTemplates := make([]string, 0, len(prev))
+	for _, cmd := range prev {
+		if cmd.Template != "" {
+			stateTemplates = append(stateTemplates, cmd.Template)
+		}
+	}
+
+	// Hydrate each suggestion with the best matching raw command.
+	// Lookup is state-conditioned (option 1), scored by recency (option 3),
+	// and boosted by argument token overlap with recent commands (option 2).
 	d.rawMu.RLock()
 	for i, s := range suggestions {
-		bestRaw, bestCount := "", 0
-		bestPrefixRaw, bestPrefixCount := "", 0
-		if inner, ok := d.rawMap[s.Template]; ok {
-			for raw, count := range inner {
-				if count > bestCount {
-					bestCount = count
-					bestRaw = raw
-				}
-				if req.Prefix != "" && strings.HasPrefix(raw, req.Prefix) && count > bestPrefixCount {
-					bestPrefixCount = count
-					bestPrefixRaw = raw
-				}
-			}
-		}
-		if bestPrefixRaw != "" {
-			suggestions[i].Raw = bestPrefixRaw
-		} else {
-			suggestions[i].Raw = bestRaw
+		if raw := d.findBestRaw(stateTemplates, s.Template, req.Prefix, argTokens, at); raw != "" {
+			suggestions[i].Raw = raw
 		}
 	}
 	d.rawMu.RUnlock()
 
 	_ = writeSuggestions(conn, suggestions)
+}
+
+// collectArgTokens extracts unquoted variable-value tokens (STR, PATH, HASH,
+// NUM, REPO) from the most recent raw prior commands. These represent file
+// names, script names, etc. that the user may want to reuse in the next command.
+// Tokens shorter than 3 characters are skipped to avoid spurious matches.
+func collectArgTokens(rawCmds []string, parents []string) []string {
+	if len(rawCmds) == 0 {
+		return nil
+	}
+	start := len(rawCmds) - 2
+	if start < 0 {
+		start = 0
+	}
+	var tokens []string
+	seen := make(map[string]struct{})
+	for _, raw := range rawCmds[start:] {
+		for _, tok := range normalize.ExtractArgTokens(raw, parents) {
+			if len(tok) < 3 {
+				continue
+			}
+			if _, ok := seen[tok]; !ok {
+				seen[tok] = struct{}{}
+				tokens = append(tokens, tok)
+			}
+		}
+	}
+	return tokens
+}
+
+// findBestRaw returns the highest-scored raw command for the given template,
+// trying progressively shorter state windows until a match is found.
+// Must be called with rawMu held for reading.
+func (d *daemon) findBestRaw(stateTemplates []string, template, prefix string, argTokens []string, at time.Time) string {
+	for trim := 0; trim <= len(stateTemplates); trim++ {
+		outerKey := rawOuterKey(stateTemplates[trim:], template)
+		inner, ok := d.rawMap[outerKey]
+		if !ok || len(inner) == 0 {
+			continue
+		}
+		if raw := d.selectBestRaw(inner, prefix, argTokens, at); raw != "" {
+			return raw
+		}
+	}
+	return ""
+}
+
+// selectBestRaw picks the highest-scored raw from a bucket. When prefix is
+// non-empty, it prefers raws that literally start with it; if none match the
+// prefix, it falls back to the overall best raw. Must be called with rawMu
+// held for reading.
+func (d *daemon) selectBestRaw(inner map[string]rawEntry, prefix string, argTokens []string, at time.Time) string {
+	bestRaw, bestScore := "", -1.0
+	bestPrefixRaw, bestPrefixScore := "", -1.0
+
+	for raw, entry := range inner {
+		score := d.scoreRaw(entry, raw, argTokens, at)
+		if score > bestScore {
+			bestScore = score
+			bestRaw = raw
+		}
+		if prefix != "" && strings.HasPrefix(raw, prefix) && score > bestPrefixScore {
+			bestPrefixScore = score
+			bestPrefixRaw = raw
+		}
+	}
+
+	if prefix != "" && bestPrefixRaw != "" {
+		return bestPrefixRaw
+	}
+	return bestRaw
+}
+
+// scoreRaw computes a score for a raw command candidate. The score combines
+// observation count with an exponential recency decay (matching the graph's
+// half-life) and an additive boost when the raw contains a token that appeared
+// as an argument in a recent prior command.
+func (d *daemon) scoreRaw(entry rawEntry, raw string, argTokens []string, at time.Time) float64 {
+	halfLife := d.opts.HalfLife()
+	var recency float64
+	if entry.lastSeen.IsZero() {
+		recency = 0.1 // small floor for migrated entries without timestamps
+	} else {
+		elapsed := at.Sub(entry.lastSeen)
+		recency = math.Exp(-math.Ln2 * float64(elapsed) / float64(halfLife))
+	}
+	score := float64(entry.count) * recency
+
+	// Token overlap boost: each argument token from a recent prior command
+	// that appears literally in this raw adds a fixed bonus large enough to
+	// override moderate frequency differences, reflecting the high likelihood
+	// the user wants to reuse the same file/script name.
+	const tokenBoost = 100.0
+	for _, tok := range argTokens {
+		if strings.Contains(raw, tok) {
+			score += tokenBoost
+		}
+	}
+	return score
 }
 
 func (d *daemon) handleReset(conn net.Conn) {
@@ -448,7 +604,7 @@ func (d *daemon) handleReset(conn net.Conn) {
 		d.log.Error("clear store", "error", err)
 	}
 	d.rawMu.Lock()
-	d.rawMap = make(map[string]map[string]int)
+	d.rawMap = make(map[string]map[string]rawEntry)
 	d.rawMu.Unlock()
 	d.dirty.Store(0)
 	d.flushMu.Unlock()
@@ -466,9 +622,6 @@ func (d *daemon) flushDB() bool {
 		}
 	}
 
-	// Snapshot the raw map under the read lock, then write outside it.
-	// saveRawExamples iterates the inner maps, so it must not run while
-	// handleRecord can mutate them concurrently under the write lock.
 	rawSnapshot := d.snapshotRawMap()
 	if len(rawSnapshot) > 0 {
 		if err := d.st.saveRawExamples(rawSnapshot); err != nil {
@@ -479,20 +632,37 @@ func (d *daemon) flushDB() bool {
 	return true
 }
 
-// snapshotRawMap returns a deep copy of the template->raw->count map taken
-// under the read lock, safe to iterate without further synchronization.
-func (d *daemon) snapshotRawMap() map[string]map[string]int {
+// snapshotRawMap returns a flat slice of rawRecords taken under the read
+// lock, safe to iterate without further synchronization.
+func (d *daemon) snapshotRawMap() []rawRecord {
 	d.rawMu.RLock()
 	defer d.rawMu.RUnlock()
-	snapshot := make(map[string]map[string]int, len(d.rawMap))
-	for tmpl, inner := range d.rawMap {
-		innerCopy := make(map[string]int, len(inner))
-		for raw, count := range inner {
-			innerCopy[raw] = count
+
+	var records []rawRecord
+	for outerKey, inner := range d.rawMap {
+		// Decompose outerKey into stateKey and template. The separator
+		// "\x00\x00" is safe because normalized templates only contain
+		// alphanumeric tokens and spaces.
+		parts := strings.SplitN(outerKey, "\x00\x00", 2)
+		if len(parts) != 2 {
+			continue
 		}
-		snapshot[tmpl] = innerCopy
+		stateKey, template := parts[0], parts[1]
+		var state []string
+		if stateKey != "" {
+			state = strings.Split(stateKey, "\x00")
+		}
+		for raw, entry := range inner {
+			records = append(records, rawRecord{
+				State:    state,
+				Template: template,
+				Raw:      raw,
+				Count:    entry.count,
+				LastSeen: entry.lastSeen,
+			})
+		}
 	}
-	return snapshot
+	return records
 }
 
 func (d *daemon) handleExport(conn net.Conn) {
@@ -640,9 +810,19 @@ func (d *daemon) decay() {
 	}
 
 	if len(res.Orphaned) > 0 {
-		d.rawMu.Lock()
+		// Build a set for O(1) lookup during the rawMap scan.
+		orphanedSet := make(map[string]struct{}, len(res.Orphaned))
 		for _, tmpl := range res.Orphaned {
-			delete(d.rawMap, tmpl)
+			orphanedSet[tmpl] = struct{}{}
+		}
+		d.rawMu.Lock()
+		for outerKey := range d.rawMap {
+			parts := strings.SplitN(outerKey, "\x00\x00", 2)
+			if len(parts) == 2 {
+				if _, orphaned := orphanedSet[parts[1]]; orphaned {
+					delete(d.rawMap, outerKey)
+				}
+			}
 		}
 		d.rawMu.Unlock()
 	}

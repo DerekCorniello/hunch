@@ -292,3 +292,36 @@ func makeSet(items []string) map[string]struct{} {
 	}
 	return s
 }
+
+// ExtractArgTokens returns the unquoted token values from raw that were
+// classified as variable types (STR, PATH, HASH, NUM, REPO). These are
+// the "content" arguments — file names, script names, version numbers —
+// as opposed to flags and fixed subcommand verbs. Callers use the result
+// to prefer raw suggestions that reuse tokens from recent prior commands.
+func ExtractArgTokens(raw string, parents []string) []string {
+	if parents == nil {
+		parents = DefaultParents
+	}
+	tokens := tokenize(raw)
+	tokens = unwrapPrefixTokens(tokens)
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	var parentSet map[string]struct{}
+	if len(parents) == len(DefaultParents) && len(parents) > 0 && &parents[0] == &DefaultParents[0] {
+		parentSet = defaultParentSet
+	} else {
+		parentSet = makeSet(parents)
+	}
+
+	firstTok := tokens[0]
+	var args []string
+	for i, tok := range tokens {
+		switch classifyToken(tok, i, firstTok, parentSet) {
+		case classStr, classPath, classHash, classNum, classRepo:
+			args = append(args, tok)
+		}
+	}
+	return args
+}

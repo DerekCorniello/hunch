@@ -259,9 +259,9 @@ func TestStorePruneRemovesRowsPermanently(t *testing.T) {
 	if err := st.save(seed); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	raws := map[string]map[string]int{
-		"stale": {"stale cmd": 1},
-		"fresh": {"fresh cmd": 1},
+	raws := []rawRecord{
+		{Template: "stale", Raw: "stale cmd", Count: 1},
+		{Template: "fresh", Raw: "fresh cmd", Count: 1},
 	}
 	if err := st.saveRawExamples(raws); err != nil {
 		t.Fatalf("saveRawExamples: %v", err)
@@ -288,10 +288,19 @@ func TestStorePruneRemovesRowsPermanently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadRawExamples: %v", err)
 	}
-	if _, ok := rawsLoaded["stale"]; ok {
+	var foundStale, foundFresh bool
+	for _, rec := range rawsLoaded {
+		if rec.Template == "stale" {
+			foundStale = true
+		}
+		if rec.Template == "fresh" {
+			foundFresh = true
+		}
+	}
+	if foundStale {
 		t.Error("orphaned raw examples for 'stale' were not pruned")
 	}
-	if _, ok := rawsLoaded["fresh"]; !ok {
+	if !foundFresh {
 		t.Error("raw examples for 'fresh' should survive")
 	}
 }
