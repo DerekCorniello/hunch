@@ -318,7 +318,11 @@ _hunch_accept_or_forward() {
 	if _hunch_owns_suggestion; then
 		_hunch_accept_full
 	else
-		zle "${_HUNCH_ORIG_WIDGET[$KEYMAP:^[[C]:-.forward-char}"
+		# Compose the lookup key in a variable: writing the literal `^[[C`
+		# inside the subscript makes zsh try to balance its `[` brackets and
+		# fail with "invalid subscript".
+		local key="$KEYMAP:^[[C"
+		zle "${_HUNCH_ORIG_WIDGET[$key]:-.forward-char}"
 	fi
 }
 
@@ -326,7 +330,8 @@ _hunch_accept_end() {
 	if _hunch_owns_suggestion; then
 		_hunch_accept_full
 	else
-		zle "${_HUNCH_ORIG_WIDGET[$KEYMAP:^[[F]:-.end-of-line}"
+		local key="$KEYMAP:^[[F"
+		zle "${_HUNCH_ORIG_WIDGET[$key]:-.end-of-line}"
 	fi
 }
 
