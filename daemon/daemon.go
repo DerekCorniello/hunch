@@ -346,7 +346,7 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	// Normalize state and next before recording.
 	normalizedState := make([]string, 0, len(req.State)+1)
 	if req.CWD != "" {
-		normalizedState = append(normalizedState, req.CWD)
+		normalizedState = append(normalizedState, filepath.Clean(req.CWD))
 	}
 	for _, raw := range req.State {
 		normalizedState = append(normalizedState, normalize.Normalize(raw, d.parents))
@@ -443,17 +443,21 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 
 	// Level 1: CWD-augmented state key — transitions learned in this
 	// specific directory from live sessions.
+	cwd := req.CWD
+	if cwd != "" {
+		cwd = filepath.Clean(cwd)
+	}
 	st := types.State{
 		Previous:     prev,
-		CWD:          req.CWD,
+		CWD:          cwd,
 		PriorOutcome: prior,
 	}
 	suggestions := d.pred.Load().Predict(st, at, 0)
 
 	// Level 2: walk up parent directories so that transitions learned
 	// in ~/project still apply when the shell is in ~/project/src.
-	if req.Prefix == "" && len(suggestions) == 0 && req.CWD != "" {
-		for parent := filepath.Dir(req.CWD); parent != "/" && parent != req.CWD; parent = filepath.Dir(parent) {
+	if req.Prefix == "" && len(suggestions) == 0 && cwd != "" {
+		for parent := filepath.Dir(cwd); parent != cwd && parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
 			stParent := types.State{
 				Previous:     prev,
 				CWD:          parent,
@@ -493,7 +497,7 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	}
 
 	// Suppress "cd" suggestions that target the current directory.
-	suggestions = suppressCdToCurrent(suggestions, req.CWD)
+	suggestions = suppressCdToCurrent(suggestions, cwd)
 
 	limit := req.Limit
 	if limit < 0 {
