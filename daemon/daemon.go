@@ -344,9 +344,12 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	}
 
 	// Normalize state and next before recording.
-	normalizedState := make([]string, len(req.State))
-	for i, raw := range req.State {
-		normalizedState[i] = normalize.Normalize(raw, d.parents)
+	normalizedState := make([]string, 0, len(req.State)+1)
+	if req.CWD != "" {
+		normalizedState = append(normalizedState, req.CWD)
+	}
+	for _, raw := range req.State {
+		normalizedState = append(normalizedState, normalize.Normalize(raw, d.parents))
 	}
 	normalizedNext := normalize.Normalize(req.Next, d.parents)
 
@@ -436,29 +439,61 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 		prev[i] = types.Command{Template: normalize.Normalize(raw, d.parents)}
 	}
 
+	prior := types.Outcome(req.PriorOutcome)
+
+	// Level 1: CWD-augmented state key — transitions learned in this
+	// specific directory from live sessions.
 	st := types.State{
 		Previous:     prev,
 		CWD:          req.CWD,
-		PriorOutcome: types.Outcome(req.PriorOutcome),
+		PriorOutcome: prior,
 	}
-	// Fetch all suggestions (limit=0 means no limit), then filter by
-	// prefix server-side, then cap to the requested limit.
 	suggestions := d.pred.Load().Predict(st, at, 0)
 
-	if req.Prefix != "" {
-		suggestions = filterByPrefix(suggestions, req.Prefix, d.parents)
-	} else if len(suggestions) == 0 {
-		// Empty buffer with no state match: fall back through progressively
-		// shorter history windows so there's always something to show.
+	// Level 2: walk up parent directories so that transitions learned
+	// in ~/project still apply when the shell is in ~/project/src.
+	if req.Prefix == "" && len(suggestions) == 0 && req.CWD != "" {
+		for parent := filepath.Dir(req.CWD); parent != "/" && parent != req.CWD; parent = filepath.Dir(parent) {
+			stParent := types.State{
+				Previous:     prev,
+				CWD:          parent,
+				PriorOutcome: prior,
+			}
+			suggestions = d.pred.Load().Predict(stParent, at, 0)
+			if len(suggestions) > 0 {
+				break
+			}
+		}
+	}
+
+	if req.Prefix == "" && len(suggestions) == 0 {
+		// Level 3: fall back to no-CWD state key — matches imported
+		// shell history and any data recorded before CWD tracking.
+		stNoCWD := types.State{
+			Previous:     prev,
+			CWD:          "",
+			PriorOutcome: prior,
+		}
+		suggestions = d.pred.Load().Predict(stNoCWD, at, 0)
+	}
+	if req.Prefix == "" && len(suggestions) == 0 {
+		// Level 4: progressively shorter history windows.
 		for trim := 1; trim <= len(prev) && len(suggestions) == 0; trim++ {
 			fallback := types.State{
 				Previous:     prev[trim:],
-				CWD:          st.CWD,
-				PriorOutcome: st.PriorOutcome,
+				CWD:          "",
+				PriorOutcome: prior,
 			}
 			suggestions = d.pred.Load().Predict(fallback, at, 0)
 		}
 	}
+
+	if req.Prefix != "" {
+		suggestions = filterByPrefix(suggestions, req.Prefix, d.parents)
+	}
+
+	// Suppress "cd" suggestions that target the current directory.
+	suggestions = suppressCdToCurrent(suggestions, req.CWD)
 
 	limit := req.Limit
 	if limit < 0 {
@@ -878,6 +913,26 @@ func filterByPrefix(suggestions []types.Suggestion, prefix string, parents []str
 		if strings.HasPrefix(s.Template, normPrefix) {
 			filtered = append(filtered, s)
 		}
+	}
+	return filtered
+}
+
+// suppressCdToCurrent removes "cd PATH" suggestions whose target matches
+// the current working directory, so hunch never suggests navigating to a
+// directory the shell is already in.
+func suppressCdToCurrent(suggestions []types.Suggestion, cwd string) []types.Suggestion {
+	if cwd == "" || len(suggestions) == 0 {
+		return suggestions
+	}
+	filtered := make([]types.Suggestion, 0, len(suggestions))
+	for _, s := range suggestions {
+		if s.Template == "cd PATH" && s.Raw != "" {
+			target := strings.TrimSpace(strings.TrimPrefix(s.Raw, "cd "))
+			if target == "." || strings.HasSuffix(cwd, "/"+target) || cwd == target {
+				continue
+			}
+		}
+		filtered = append(filtered, s)
 	}
 	return filtered
 }

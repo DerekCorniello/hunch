@@ -44,13 +44,17 @@ func New(g *graph.Graph, halfLife time.Duration, alpha, beta, gamma, delta, epsi
 // descending score then descending count as tie-breaker.
 //
 // limit caps the number of suggestions returned; 0 means no limit.
-// state.CWD and state.PriorOutcome, when set, softly boost transitions seen
-// in the same directory or following the same prior outcome; they never
-// exclude transitions, so an unknown CWD/outcome leaves ranking unchanged.
+// When state.CWD is set, it is prepended to the template state key so that
+// transitions learned in different directories are stored under distinct
+// keys. state.PriorOutcome softly boosts transitions following the same
+// prior outcome.
 func (p *Predictor) Predict(state types.State, at time.Time, limit int) []types.Suggestion {
-	templates := make([]string, len(state.Previous))
-	for i, cmd := range state.Previous {
-		templates[i] = cmd.Template
+	templates := make([]string, 0, len(state.Previous)+1)
+	if state.CWD != "" {
+		templates = append(templates, state.CWD)
+	}
+	for _, cmd := range state.Previous {
+		templates = append(templates, cmd.Template)
 	}
 
 	transitions := p.g.Transitions(templates)

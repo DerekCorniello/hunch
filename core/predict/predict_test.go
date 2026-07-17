@@ -241,35 +241,41 @@ func windowState(cwd string, prior types.Outcome) types.State {
 	}
 }
 
-func TestPredictCWDBoostReordersSuggestions(t *testing.T) {
+func TestPredictCWDStateKey(t *testing.T) {
 	g := graph.New(2)
-	// beta>0 so the CWD boost is active.
 	p := New(g, 720*time.Hour, 0.5, 1.0, 0, 0, 0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
-	state := []string{"", "cmd"}
 
-	// "ls" is observed more often overall but never in /proj; "make" is
-	// observed less often but always in /proj.
-	g.RecordObs(graph.Observation{State: state, Next: "ls", At: now})
-	g.RecordObs(graph.Observation{State: state, Next: "ls", At: now})
-	g.RecordObs(graph.Observation{State: state, Next: "ls", At: now})
-	g.RecordObs(graph.Observation{State: state, Next: "make", At: now, CWD: "/proj"})
-	g.RecordObs(graph.Observation{State: state, Next: "make", At: now, CWD: "/proj"})
+	// "ls" recorded without CWD (general state key).
+	general := []string{"", "cmd"}
+	g.RecordObs(graph.Observation{State: general, Next: "ls", At: now})
+	g.RecordObs(graph.Observation{State: general, Next: "ls", At: now})
+	g.RecordObs(graph.Observation{State: general, Next: "ls", At: now})
 
-	// With no CWD, the more frequent "ls" wins.
+	// "make" recorded WITH CWD "/proj" — state key includes CWD.
+	withCWD := []string{"/proj", "", "cmd"}
+	for range 2 {
+		g.RecordObs(graph.Observation{State: withCWD, Next: "make", At: now})
+	}
+
+	// Without CWD: general key ["", "cmd"] → "ls" wins.
 	noCWD := p.Predict(windowState("", types.OutcomeUnknown), now, 0)
 	if noCWD[0].Template != "ls" {
 		t.Fatalf("without CWD, top = %q, want ls", noCWD[0].Template)
 	}
 
-	// In /proj (and a subdirectory, via ancestor match), "make" is boosted
-	// above "ls".
-	for _, cwd := range []string{"/proj", "/proj/src"} {
-		got := p.Predict(windowState(cwd, types.OutcomeUnknown), now, 0)
-		if got[0].Template != "make" {
-			t.Errorf("in %s, top = %q, want make (CWD boost)", cwd, got[0].Template)
-		}
+	// With CWD "/proj": state key ["/proj", "", "cmd"] → "make".
+	inProj := p.Predict(windowState("/proj", types.OutcomeUnknown), now, 0)
+	if inProj[0].Template != "make" {
+		t.Errorf("in /proj, top = %q, want make (CWD state key)", inProj[0].Template)
+	}
+
+	// With CWD "/other": no CWD-specific data → no match (fallback is
+	// handled by the daemon, not the core Predict).
+	inOther := p.Predict(windowState("/other", types.OutcomeUnknown), now, 0)
+	if inOther != nil {
+		t.Errorf("in /other, expected nil (no data for this CWD), got %v", inOther)
 	}
 }
 
@@ -347,7 +353,8 @@ func TestPredictBoostsKeepScoreBounded(t *testing.T) {
 	p := New(g, 720*time.Hour, 0.5, 1.0, 1.0, 1.0, 1.0)
 
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
-	state := []string{"", "cmd"}
+	// Record with CWD in the state key so the CWD-augmented lookup finds it.
+	state := []string{"/proj", "", "cmd"}
 	g.RecordObs(graph.Observation{State: state, Next: "only", At: now, CWD: "/proj", NextOutcome: graph.OutcomeSuccess, PriorOutcome: graph.OutcomeFailure, Accepted: true})
 
 	got := p.Predict(windowState("/proj", types.OutcomeFailure), now, 0)

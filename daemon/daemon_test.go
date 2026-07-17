@@ -182,22 +182,34 @@ func recordObs(t *testing.T, socket string, fields map[string]interface{}) {
 	}
 }
 
-func TestDaemonCWDBoostThroughDaemon(t *testing.T) {
+func TestDaemonCWDStateKey(t *testing.T) {
 	_, _, socket := startDaemon(t, LoadConfig())
 	st := []string{"", "cd"}
 
+	// "ls" recorded without CWD — general state key.
 	for range 3 {
 		recordObs(t, socket, map[string]interface{}{"state": st, "next": "ls"})
 	}
+	// "make" recorded WITH CWD "/proj" — state key includes CWD.
 	for range 2 {
 		recordObs(t, socket, map[string]interface{}{"state": st, "next": "make", "cwd": "/proj"})
 	}
 
+	// Without CWD: Level 3 fallback → general key finds "ls".
 	if got := predictTop(t, socket, st, "", ""); got != "ls" {
 		t.Errorf("no CWD: top = %q, want ls", got)
 	}
+	// In "/proj": Level 1 finds CWD-specific key → "make".
+	if got := predictTop(t, socket, st, "/proj", ""); got != "make" {
+		t.Errorf("in /proj: top = %q, want make", got)
+	}
+	// In "/proj/sub": Level 2 parent fallback → finds /proj → "make".
 	if got := predictTop(t, socket, st, "/proj/sub", ""); got != "make" {
-		t.Errorf("in /proj/sub (ancestor match): top = %q, want make", got)
+		t.Errorf("in /proj/sub (parent fallback): top = %q, want make", got)
+	}
+	// In "/other": no CWD-specific data, no parent match → Level 3 → "ls".
+	if got := predictTop(t, socket, st, "/other", ""); got != "ls" {
+		t.Errorf("in /other (no CWD data): top = %q, want ls", got)
 	}
 }
 
