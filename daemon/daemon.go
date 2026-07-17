@@ -287,15 +287,11 @@ func (d *daemon) handleConn(conn net.Conn) {
 		conn.Close()
 	}()
 
-	// Initial deadline for reading the full request JSON. Large payloads
-	// (e.g. raw examples from import-history) need more than the default
-	// 10s; 30s is generous even for tens of thousands of entries.
 	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
 	req, err := parseRequest(conn)
 	if err != nil {
-		d.log.Error("parse request", "error", err)
-		_ = writeError(conn, fmt.Sprintf("bad request: %s", err))
+		_ = writeError(conn, "bad request")
 		return
 	}
 
