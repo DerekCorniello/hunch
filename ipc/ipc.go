@@ -21,7 +21,7 @@ type Request struct {
 	Suggested    string           `json:"suggested,omitempty"`     // raw suggestion hunch last showed (record): for acceptance detection
 }
 
-// RawExampleJSON is a single state+template→raw observation carried by the
+// RawExampleJSON is a single state+template->raw observation carried by the
 // record_raws op, used to bulk-load raw command examples (e.g. from
 // shell-history import) without smuggling a JSON blob through Next.
 // State holds the normalized prior-command templates (same ordering as the

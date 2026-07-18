@@ -284,7 +284,7 @@ func TestNormalize(t *testing.T) {
 			want: "terraform plan FLAG",
 		},
 
-		// --- Pipes (|) — each segment normalized independently ---
+		// --- Pipes (|) - each segment normalized independently ---
 		{
 			name: "pipe separates segments",
 			raw:  "git log | grep fix",
@@ -301,7 +301,7 @@ func TestNormalize(t *testing.T) {
 			want: "grep FLAG STR PATH | xargs STR",
 		},
 
-		// --- Redirects — non-operator symbols collapse normally ---
+		// --- Redirects - non-operator symbols collapse normally ---
 		{
 			name: "redirect stdout",
 			raw:  "echo hello > /dev/null",
@@ -323,7 +323,7 @@ func TestNormalize(t *testing.T) {
 			want: "make STR | tee STR",
 		},
 
-		// --- Heredocs — multi-line input is joined as one token ---
+		// --- Heredocs - multi-line input is joined as one token ---
 		{
 			name: "heredoc",
 			raw:  "cat <<EOF\nhello\nEOF",

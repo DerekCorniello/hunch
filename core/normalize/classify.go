@@ -12,11 +12,11 @@ import (
 // A tool belongs here only when its first non-flag argument is typically
 // a verb that distinguishes workflows (git push vs git pull, docker
 // run vs docker build, kubectl get vs kubectl describe). Tools where the
-// first argument is usually a file, URL, filter, or patch are excluded —
+// first argument is usually a file, URL, filter, or patch are excluded -
 // for them, the first argument is classified like any other token and
 // collapsed into STR / PATH / REPO as appropriate.
 var DefaultParents = []string{
-	// Version control — verbs like commit, push, pull, checkout, merge
+	// Version control - verbs like commit, push, pull, checkout, merge
 	"git", "hg", "svn", "pijul", "fossil", "jj",
 
 	// Package managers & build tools
@@ -92,7 +92,7 @@ var DefaultParents = []string{
 	// Desktop / cross-platform
 	"electron", "electron-builder", "electron-forge",
 
-	// JS/TS runtimes — deno and bun have first-class subcommand structures
+	// JS/TS runtimes - deno and bun have first-class subcommand structures
 	// (run, test, fmt, install). node is intentionally excluded because
 	// its first argument is typically a script file rather than a verb;
 	// treating it as a script runner (like python) yields cleaner templates.
@@ -210,7 +210,7 @@ func classifyToken(tok string, idx int, firstTok string, parents map[string]stru
 		}
 	}
 
-	// URL or git remote — check before path so URLs with slashes
+	// URL or git remote - check before path so URLs with slashes
 	// are caught as REPO rather than PATH.
 	if repoRe.MatchString(tok) {
 		return classRepo
@@ -295,7 +295,7 @@ func makeSet(items []string) map[string]struct{} {
 
 // ExtractArgTokens returns the unquoted token values from raw that were
 // classified as variable types (STR, PATH, HASH, NUM, REPO). These are
-// the "content" arguments — file names, script names, version numbers —
+// the "content" arguments - file names, script names, version numbers -
 // as opposed to flags and fixed subcommand verbs. Callers use the result
 // to prefer raw suggestions that reuse tokens from recent prior commands.
 func ExtractArgTokens(raw string, parents []string) []string {

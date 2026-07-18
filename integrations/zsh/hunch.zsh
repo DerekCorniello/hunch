@@ -24,7 +24,7 @@ _HUNCH_CYCLE_PREV_KEY=${HUNCH_CYCLE_PREV_KEY:-'^[p'} # Alt-p: previous suggestio
 
 # _hunch_outcome maps an exit code to an outcome string in REPLY: 0 is
 # "success"; a signal kill (128 < code <= 192, e.g. 130 Ctrl-C, 143 SIGTERM)
-# is "" (neutral — an interrupted command is not a task failure); any other
+# is "" (neutral - an interrupted command is not a task failure); any other
 # non-zero is "failure".
 _hunch_outcome() {
 	if (( $1 == 0 )); then
@@ -83,7 +83,7 @@ _hunch_build_request() {
 # _hunch_parse_response extracts the prefix and the raws array from a serve
 # response JSON line into _HUNCH_RESP_PREFIX and the _HUNCH_RESP_RAWS array. It
 # relies on the daemon's compact, fixed field order
-# ({"prefix":"…","raws":["…","…"]}): any quote inside a value is escaped, so
+# ({"prefix":"...","raws":["...","..."]}): any quote inside a value is escaped, so
 # both the field delimiters and the array element separator ("," ) are
 # unambiguous.
 _hunch_parse_response() {
@@ -210,7 +210,7 @@ _hunch_query() {
 
 # _hunch_on_response is the zle -F file-descriptor handler invoked when the
 # coprocess has output. Crucially, a -F handler runs WITHOUT access to the line
-# editor — $BUFFER and $CURSOR are empty here — so it only reads and parses the
+# editor - $BUFFER and $CURSOR are empty here - so it only reads and parses the
 # response, then hands off to the _hunch_apply_response widget, which zsh runs
 # with the editor state available. (This is the same pattern zsh-autosuggestions
 # uses for its async responses.)
@@ -357,8 +357,8 @@ _hunch_record() {
 
 	# Skip the synthetic precmd that fires once at shell startup (and any
 	# precmd where no new command actually ran). Without this guard the first
-	# precmd records a stale history entry — e.g. the rc's own `source
-	# .../hunch.zsh` line — as a transition and poisons _HUNCH_PREV, so the
+	# precmd records a stale history entry - e.g. the rc's own `source
+	# .../hunch.zsh` line - as a transition and poisons _HUNCH_PREV, so the
 	# first real prediction is made from a bogus state.
 	if [[ "$HISTCMD" == "$_HUNCH_LAST_HISTCMD" ]]; then
 		return

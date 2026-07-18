@@ -45,7 +45,7 @@ type daemon struct {
 	parents  []string        // cached result of MergeParents
 	redactor *redact.Matcher // drops sensitive commands before recording
 
-	// rawMap: outerKey → raw → rawEntry
+	// rawMap: outerKey -> raw -> rawEntry
 	// outerKey = rawOuterKey(stateTemplates, template)
 	rawMap map[string]map[string]rawEntry
 	rawMu  sync.RWMutex
@@ -187,7 +187,7 @@ func (d *daemon) start(ctx context.Context) error {
 	d.decay()
 	go d.decayLoop(ctx)
 
-	// Start IPC listener — clean stale socket first.
+	// Start IPC listener - clean stale socket first.
 	os.Remove(d.sockPath)
 	listener, err := net.Listen("unix", d.sockPath)
 	if err != nil {
@@ -441,7 +441,7 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 
 	prior := types.Outcome(req.PriorOutcome)
 
-	// Level 1: CWD-augmented state key — transitions learned in this
+	// Level 1: CWD-augmented state key - transitions learned in this
 	// specific directory from live sessions.
 	cwd := req.CWD
 	if cwd != "" {
@@ -471,7 +471,7 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	}
 
 	if req.Prefix == "" && len(suggestions) == 0 {
-		// Level 3: fall back to no-CWD state key — matches imported
+		// Level 3: fall back to no-CWD state key - matches imported
 		// shell history and any data recorded before CWD tracking.
 		stNoCWD := types.State{
 			Previous:     prev,

@@ -5,7 +5,7 @@ package types
 
 // Outcome represents the result of a command execution.
 //
-// It is intentionally coarse — hunch uses outcomes to influence
+// It is intentionally coarse - hunch uses outcomes to influence
 // transition weights (e.g. a successful command makes the following
 // command a stronger candidate for suggestion), not to model every
 // possible exit condition.

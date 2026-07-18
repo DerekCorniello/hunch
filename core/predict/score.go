@@ -42,7 +42,7 @@ type scoreParams struct {
 //
 // Each adjustment is the identity (factor 1) when its signal is absent, so a
 // transition with no CWD/outcome data ranks exactly as it would without these
-// terms — the additions never penalize cross-directory or unobserved cases.
+// terms - the additions never penalize cross-directory or unobserved cases.
 // Additive smoothing still prevents cold-start collapse and bounds scores to
 // (0, 1]. Results are sorted descending by score, then count, then next.
 func scoreTransitions(transitions []graph.Transition, p scoreParams) []scoredTransition {

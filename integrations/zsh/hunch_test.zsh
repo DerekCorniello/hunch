@@ -7,7 +7,7 @@
 # pure decision functions: given the current BUFFER, the cached suggestion, and
 # what is currently in POSTDISPLAY, decide whether to paint, repaint from cache,
 # leave a stale response alone, or clear. Those decisions do not need a live
-# terminal or daemon to verify — they need controlled inputs and assertions on
+# terminal or daemon to verify - they need controlled inputs and assertions on
 # the resulting state.
 #
 # So this harness stubs the ZLE/coproc surface (zle, bindkey, add-zsh-hook,
@@ -159,7 +159,7 @@ assert_eq "S7 buffer completed" "$BUFFER" "git status"
 assert_eq "S7 cursor at end" "$CURSOR" "10"
 assert_eq "S7 display cleared after accept" "$_HUNCH_DISPLAY" ""
 
-# S8: ownership gate — accept keys only act when hunch is the plugin currently
+# S8: ownership gate - accept keys only act when hunch is the plugin currently
 # showing the ghost text and the cursor is at end of buffer.
 reset_state
 BUFFER="git st" CURSOR=6 _HUNCH_DISPLAY="atus" POSTDISPLAY="atus"

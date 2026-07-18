@@ -1,4 +1,4 @@
-// Package graph tracks state → next-command transitions with counts and
+// Package graph tracks state -> next-command transitions with counts and
 // last-seen timestamps. It is pure logic with no IO, no shell awareness,
 // and no external dependencies beyond the standard library.
 //
@@ -28,7 +28,7 @@ const (
 	OutcomeFailure Outcome = "failure"
 )
 
-// Transition represents a single observed state → next transition.
+// Transition represents a single observed state -> next transition.
 type Transition struct {
 	State    []string  // last N templates, most recent last
 	Next     string    // normalized template that followed

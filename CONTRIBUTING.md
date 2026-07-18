@@ -16,9 +16,9 @@ make check
 ## Code style
 
 - Follow standard Go conventions (`gofmt`, `go vet`, `golangci-lint`)
-- Core packages are pure logic — no IO, no database, no shell dependencies
+- Core packages are pure logic - no IO, no database, no shell dependencies
 - Daemon is the only package that owns persistence and caching
-- Shell integrations are thin UI shims — no learning logic
+- Shell integrations are thin UI shims - no learning logic
 
 ## Testing
 
@@ -40,7 +40,7 @@ make lint-shell     # shellcheck on integration scripts
 1. Ensure `make check` passes locally
 2. Add tests for new functionality
 3. Update README and CHANGELOG for user-facing changes
-4. Keep PRs focused — one logical change per PR
+4. Keep PRs focused - one logical change per PR
 
 ## Release process
 

@@ -3,8 +3,8 @@
 //
 // Normalized templates are already privacy-safe (concrete values collapse
 // to STR/PATH/etc.), but hunch also stores the raw command so it can be
-// suggested back verbatim. That raw form can leak secrets — API tokens,
-// passwords, auth headers — so commands matching a sensitive pattern are
+// suggested back verbatim. That raw form can leak secrets - API tokens,
+// passwords, auth headers - so commands matching a sensitive pattern are
 // dropped entirely (neither the transition nor the raw example is recorded).
 //
 // The built-in patterns are intentionally conservative to avoid discarding
@@ -18,15 +18,15 @@ import "regexp"
 // header rather than on free text, so a commit message mentioning
 // "password" is not mistaken for a secret.
 var builtinPatterns = []*regexp.Regexp{
-	// Assignment to a secret-like variable: AWS_SECRET_KEY=…, GH_TOKEN=…,
-	// MY_PASSWORD=…, API_KEY=…, *_CREDENTIAL=…, PRIVATE_KEY=…
+	// Assignment to a secret-like variable: AWS_SECRET_KEY=..., GH_TOKEN=...,
+	// MY_PASSWORD=..., API_KEY=..., *_CREDENTIAL=..., PRIVATE_KEY=...
 	regexp.MustCompile(`(?i)(^|\s)[A-Z0-9_]*(SECRET|TOKEN|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL)[A-Z0-9_]*\s*=\s*\S`),
 
-	// A secret-bearing flag carrying a value: --password=…, --password …,
-	// --token …, --secret=…, --api-key …, --auth …
+	// A secret-bearing flag carrying a value: --password=..., --password ...,
+	// --token ..., --secret=..., --api-key ..., --auth ...
 	regexp.MustCompile(`(?i)(^|\s)--?(password|passwd|pass|token|secret|api[-_]?key|auth)(=\S|\s+\S)`),
 
-	// An Authorization header value: Authorization: Bearer …, Basic …, etc.
+	// An Authorization header value: Authorization: Bearer ..., Basic ..., etc.
 	regexp.MustCompile(`(?i)authorization:\s*\S+\s+\S`),
 
 	// A user:password pair after -u (curl, etc.): -u user:secret

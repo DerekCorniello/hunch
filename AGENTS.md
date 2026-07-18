@@ -13,7 +13,7 @@ It is not an AI assistant. It is a lightweight statistical system that learns wo
 
 Primary UX:
 - After a command runs, Hunch suggests the next likely command inline or via shell integration.
-- Suggestions are learned from the user’s own history.
+- Suggestions are learned from the user's own history.
 
 ---
 
@@ -27,16 +27,16 @@ Contains:
 
 - `graph/`  
   Transition tracking logic  
-  - state → next-command counts  
+  - state -> next-command counts  
   - weight updates  
   - history aggregation
 
 - `normalize/`  
   Converts raw shell commands into templates via a two-phase pipeline:
 
-  **Phase 1 — Unwrap wrappers**: strip `sudo`, `time`, `nohup`, etc., then recurse on the inner command.
+  **Phase 1 - Unwrap wrappers**: strip `sudo`, `time`, `nohup`, etc., then recurse on the inner command.
 
-  **Phase 2 — Token-type classification**: split the command into tokens, classify each by shape:
+  **Phase 2 - Token-type classification**: split the command into tokens, classify each by shape:
   
   | Pattern | Type |
   |---|---|
@@ -46,12 +46,12 @@ Contains:
   | Hex string of git-hash length | `HASH` |
   | Looks like a number | `NUM` |
   | Was quoted in the original | `STR` |
-  | Standalone `--` token | separator — everything after becomes `KWARGS` |
+  | Standalone `--` token | separator - everything after becomes `KWARGS` |
   | Known parent command (`git`, `cargo`, `npm`, etc.) | keeps verb/subcommand as-is |
   
   After classification, collapse consecutive same-type tokens into one.
   
-  Examples: `mkdir foo → mkdir PATH`, `git commit -m "init" → git commit FLAG STR`, `cargo build -- --target x86_64 → cargo build KWARGS`
+  Examples: `mkdir foo -> mkdir PATH`, `git commit -m "init" -> git commit FLAG STR`, `cargo build -- --target x86_64 -> cargo build KWARGS`
 
 - `predict/`  
   Generates ranked suggestions from state  
@@ -112,9 +112,9 @@ Responsibilities:
 
 Subdirectories:
 
-- `zsh/` — ZLE integration
-- `bash/` — readline hooks
-- `fish/` — fish event hooks
+- `zsh/` - ZLE integration
+- `bash/` - readline hooks
+- `fish/` - fish event hooks
 
 Must remain minimal and contain no learning logic.
 
@@ -146,7 +146,7 @@ Must remain minimal and contain no learning logic.
 ### Pre-commit hooks
 
 ```bash
-make hooks    # one-time setup — configures git to use .githooks/
+make hooks    # one-time setup - configures git to use .githooks/
 ```
 
 The pre-commit hook runs:

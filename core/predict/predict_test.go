@@ -253,25 +253,25 @@ func TestPredictCWDStateKey(t *testing.T) {
 	g.RecordObs(graph.Observation{State: general, Next: "ls", At: now})
 	g.RecordObs(graph.Observation{State: general, Next: "ls", At: now})
 
-	// "make" recorded WITH CWD "/proj" — state key includes CWD.
+	// "make" recorded WITH CWD "/proj" - state key includes CWD.
 	withCWD := []string{"/proj", "", "cmd"}
 	for range 2 {
 		g.RecordObs(graph.Observation{State: withCWD, Next: "make", At: now})
 	}
 
-	// Without CWD: general key ["", "cmd"] → "ls" wins.
+	// Without CWD: general key ["", "cmd"] -> "ls" wins.
 	noCWD := p.Predict(windowState("", types.OutcomeUnknown), now, 0)
 	if noCWD[0].Template != "ls" {
 		t.Fatalf("without CWD, top = %q, want ls", noCWD[0].Template)
 	}
 
-	// With CWD "/proj": state key ["/proj", "", "cmd"] → "make".
+	// With CWD "/proj": state key ["/proj", "", "cmd"] -> "make".
 	inProj := p.Predict(windowState("/proj", types.OutcomeUnknown), now, 0)
 	if inProj[0].Template != "make" {
 		t.Errorf("in /proj, top = %q, want make (CWD state key)", inProj[0].Template)
 	}
 
-	// With CWD "/other": no CWD-specific data → no match (fallback is
+	// With CWD "/other": no CWD-specific data -> no match (fallback is
 	// handled by the daemon, not the core Predict).
 	inOther := p.Predict(windowState("/other", types.OutcomeUnknown), now, 0)
 	if inOther != nil {

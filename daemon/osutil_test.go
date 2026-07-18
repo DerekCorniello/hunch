@@ -118,5 +118,3 @@ func TestOpenLock_FileCreation(t *testing.T) {
 		t.Error("OpenLock should create the lock file")
 	}
 }
-
-

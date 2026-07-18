@@ -26,7 +26,7 @@ type rawRecord struct {
 
 // migrations is the ordered list of schema migrations. Each entry is
 // applied exactly once, in order, and SQLite's user_version PRAGMA records
-// how many have run. Append new migrations to the end — never edit or
+// how many have run. Append new migrations to the end - never edit or
 // reorder existing ones, or databases in the field will diverge.
 //
 // Migration 1 uses IF NOT EXISTS so it adopts databases created before the

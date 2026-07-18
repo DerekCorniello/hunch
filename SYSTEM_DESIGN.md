@@ -16,19 +16,19 @@ Hunch is a lightweight statistical system that learns shell workflows from user 
                     │    Integration Layer    │
                     │  (thin adapter / shim)  │
                     │                         │
-                    │  • captures commands    │
-                    │  • renders ghost text   │
-                    │  • sends IPC to daemon  │
+                    │  - captures commands    │
+                    │  - renders ghost text   │
+                    │  - sends IPC to daemon  │
                     └───────────┬───────────┘
                                 │  unix socket
                     ┌───────────▼───────────┐
                     │        Daemon           │
                     │  (background service)   │
                     │                         │
-                    │  • owns SQLite (WAL)    │
-                    │  • accepts IPC          │
-                    │  • flush loop (5s)      │
-                    │  • stale lock recovery  │
+                    │  - owns SQLite (WAL)    │
+                    │  - accepts IPC          │
+                    │  - flush loop (5s)      │
+                    │  - stale lock recovery  │
                     └───────────┬───────────┘
                                 │
               ┌─────────────────┼─────────────────┐
@@ -45,7 +45,7 @@ Hunch is a lightweight statistical system that learns shell workflows from user 
 
 ## Component Design
 
-### core/normalize — Command Template Generation
+### core/normalize - Command Template Generation
 
 Converts raw shell commands into normalized templates suitable for use as graph keys. This is the foundation of Hunch's ability to generalize across syntactic variations of the same command.
 
@@ -65,7 +65,7 @@ Supported wrappers and their parsing strategies:
 | `chroot` | Skip flags, skip NEWROOT positional arg |
 | `time` | Skip flags, honor `--` |
 | `nice` / `ionice` | Skip flags (short flag takes value), honor `--` |
-| `exec` / `nohup` / `fakeroot` / `setsid` | No flags — inner command always at index 1 |
+| `exec` / `nohup` / `fakeroot` / `setsid` | No flags - inner command always at index 1 |
 | `flock` | Special: handles `-c CMD` and `lock-file CMD` forms |
 | `watch` / `systemd-run` / `taskset` / `numactl` / `unshare` / `stdbuf` / `prlimit` | Various flag-skip strategies |
 
@@ -82,7 +82,7 @@ Splits the command into tokens and classifies each by shape:
 | Pure number (optional decimal) | `NUM` | `8080`, `3.14` |
 | Was quoted in original command | `STR` | `"hello world"` |
 | Standalone `--` | `KWARGS` separator | Everything after becomes `KWARGS` |
-| Known parent command (position 1) | Kept verbatim | `git push` → `git push` |
+| Known parent command (position 1) | Kept verbatim | `git push` -> `git push` |
 
 **Collapse:** Consecutive tokens of the same type are merged into a single representative token.
 
@@ -105,17 +105,17 @@ Over 200 tools are recognized, including: git, cargo, npm, docker, kubectl, aws,
 
 ---
 
-### core/graph — Transition Tracking
+### core/graph - Transition Tracking
 
-Stores observed `state → next` transitions with counts and timestamps.
+Stores observed `state -> next` transitions with counts and timestamps.
 
 #### Data Model
 
 ```
 Graph
 ├── state_key_1 (null-joined state string)
-│   ├── next_template_A → {count: 5, last_seen: 2026-01-15T10:30:00Z}
-│   └── next_template_B → {count: 2, last_seen: 2026-01-15T09:00:00Z}
+│   ├── next_template_A -> {count: 5, last_seen: 2026-01-15T10:30:00Z}
+│   └── next_template_B -> {count: 2, last_seen: 2026-01-15T09:00:00Z}
 ├── state_key_2
 │   └── ...
 ```
@@ -140,14 +140,14 @@ Graph
 Transitions lose weight over time. The effective weight at time `at` is:
 
 ```
-weight = count × exp(-age / halfLife)
+weight = count * exp(-age / halfLife)
 ```
 
 where `age = at - lastSeen`. Transitions below `epsilon = 0.001` are pruned during `Decay()`. The default half-life is 720 hours (30 days).
 
 ---
 
-### core/predict — Scoring and Ranking
+### core/predict - Scoring and Ranking
 
 Generates ranked suggestions from the transition graph for a given state.
 
@@ -156,12 +156,12 @@ Generates ranked suggestions from the transition graph for a given state.
 Additive-smoothed decay scoring:
 
 ```
-score(t) = (effCount(t) + α) / (Σ effCount + α × N)
+score(t) = (effCount(t) + alpha) / (sum effCount + alpha * N)
 ```
 
 Where:
-- `effCount(t) = count(t) × exp(-age(t) / halfLife)`
-- `α` = additive smoothing constant (default 0.5)
+- `effCount(t) = count(t) * exp(-age(t) / halfLife)`
+- `alpha` = additive smoothing constant (default 0.5)
 - `N` = number of candidate transitions for this state
 
 **Properties:**
@@ -178,7 +178,7 @@ Suggestions are sorted by:
 
 ---
 
-### daemon — Background Service
+### daemon - Background Service
 
 The daemon is a long-running process that owns all persistence and handles IPC from shell integrations.
 
@@ -207,11 +207,11 @@ The daemon is a long-running process that owns all persistence and handles IPC f
 |----|----------------|----------|
 | `record` | `state[]`, `next`, `at` | `{ok: true}` |
 | `predict` | `state[]`, `prefix`, `limit`, `at` | `{suggestions: [...]}` |
-| `reset` | — | `{ok: true}` |
-| `export` | — | `{transitions: [...]}` |
+| `reset` | - | `{ok: true}` |
+| `export` | - | `{transitions: [...]}` |
 | `normalize` | `next` (or last state entry) | `{raw, template}` |
-| `stats` | — | `{size, half_life, alpha, db_path}` |
-| `config` | — | `{accept_keys, extra_parents, half_life, alpha}` |
+| `stats` | - | `{size, half_life, alpha, db_path}` |
+| `config` | - | `{accept_keys, extra_parents, half_life, alpha}` |
 | `import` | `next` (file path) | `{ok: true}` |
 | `record_raws` | `next` (JSON array of examples) | `{ok: true}` |
 
@@ -241,7 +241,7 @@ CREATE TABLE raw_examples (
 #### Flush Loop
 
 - **Interval:** Every 5 seconds (if dirty)
-- **Threshold:** Immediate flush when dirty count ≥ 50
+- **Threshold:** Immediate flush when dirty count >= 50
 - **Behavior:** Saves graph + raw examples in a single transaction. Only clears dirty flag on successful save. If records arrive during save, a re-flush is scheduled.
 
 #### Raw Examples
@@ -353,7 +353,7 @@ User types: git pus
 
 ## Configuration
 
-### Precedence (lowest → highest)
+### Precedence (lowest -> highest)
 
 1. Built-in defaults
 2. Config file (`~/.config/hunch/config.toml`)
@@ -388,7 +388,7 @@ Windows note: Exclude `%LocalAppData%\hunch\` from Windows Defender real-time sc
 
 ## Testing Strategy
 
-- **Unit tests:** Core logic (normalize, graph, predict) — deterministic, no IO
+- **Unit tests:** Core logic (normalize, graph, predict) - deterministic, no IO
 - **Integration tests:** Daemon IPC roundtrip, persistence, stale lock recovery
 - **Race detection:** All tests run with `-race` flag
 - **Cross-compile check:** Linux, macOS, Windows in pre-commit hooks

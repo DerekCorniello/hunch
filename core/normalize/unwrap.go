@@ -25,7 +25,7 @@ type wrapperConfig struct {
 // its own arguments to reach the wrapped command.
 //
 // Wrappers that have no flags of their own (exec, fakeroot, nohup,
-// pkexec, setsid) have an empty config — the wrapped command is
+// pkexec, setsid) have an empty config - the wrapped command is
 // always at index 1. flock is a special case handled inline in
 // wrapperCommandIndex because it accepts both `-c CMD` and
 // `lock-file CMD` forms; its empty config is never consulted.
@@ -104,7 +104,7 @@ var wrapperConfigs = map[string]wrapperConfig{
 		honorDoubleDash: true,
 	},
 
-	// Wrappers with no flags of their own — inner command at index 1.
+	// Wrappers with no flags of their own - inner command at index 1.
 	"exec":     {},
 	"fakeroot": {},
 	"nohup":    {},
