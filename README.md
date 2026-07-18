@@ -38,6 +38,31 @@ ssh STR        -> ssh STR
 
 ## Installation
 
+### Pre-built binaries
+
+No Go toolchain required. Download the binary for your platform from the
+[latest release](https://github.com/DerekCorniello/hunch/releases/latest),
+make it executable, and put it on your `PATH`:
+
+```bash
+# Linux (x86_64) - substitute your platform below
+curl -L -o hunch https://github.com/DerekCorniello/hunch/releases/latest/download/hunch-linux-amd64
+chmod +x hunch
+sudo mv hunch /usr/local/bin/
+```
+
+Available builds: `hunch-linux-amd64`, `hunch-linux-arm64`,
+`hunch-darwin-amd64`, `hunch-darwin-arm64`, `hunch-windows-amd64.exe`,
+`hunch-windows-arm64.exe`.
+
+On macOS, Gatekeeper will block the binary on first run because it is
+unsigned. Clear the quarantine attribute with
+`xattr -d com.apple.quarantine /usr/local/bin/hunch`.
+
+To upgrade later, download the new binary the same way. (`hunch update`
+reinstalls via `go install` and so requires a Go toolchain; it is meant for
+source installs.)
+
 ### From source
 
 ```bash
@@ -49,7 +74,7 @@ The binary is built at `~/go/bin/hunch` (or wherever `$GOBIN` points). Make sure
 Build with a version string:
 
 ```bash
-go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=1.0.0" github.com/DerekCorniello/hunch@latest
+go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=v0.1.0" github.com/DerekCorniello/hunch@latest
 ```
 
 Or from a local clone:
@@ -57,10 +82,6 @@ Or from a local clone:
 ```bash
 go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(git describe --tags --always)" .
 ```
-
-### Pre-built binaries
-
-Pre-built binaries are not yet available. See [Building from source](#from-source) above.
 
 ### Dependencies
 
