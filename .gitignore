@@ -41,3 +41,7 @@ tmp/
 
 # Environment (may contain secrets)
 .env
+
+# Internal planning notes (kept locally, not published)
+plan.md
+IMPROVEMENT_PLAN.md

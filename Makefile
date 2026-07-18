@@ -32,9 +32,11 @@ lint:
 	$(GO) vet ./...
 	which staticcheck 2>/dev/null && staticcheck ./...
 
+# Local convenience: skips any shell that is not installed. CI runs the same
+# checks strictly (see the lint-shell job in .github/workflows/ci.yml).
 lint-shell:
 	@echo "--- bash ---"
-	which shellcheck 2>/dev/null && shellcheck integrations/bash/hunch.bash || echo "shellcheck not found, skipping"
+	which shellcheck 2>/dev/null && shellcheck integrations/bash/hunch.bash scripts/e2e-test.sh .githooks/pre-commit || echo "shellcheck not found, skipping"
 	@echo "--- zsh ---"
 	which zsh 2>/dev/null && zsh -n integrations/zsh/hunch.zsh || echo "zsh not found, skipping"
 	@echo "--- fish ---"

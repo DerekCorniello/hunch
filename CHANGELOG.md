@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.1.0 - 2026-07-18
+
+First tagged release. Pre-built binaries for Linux, macOS, and Windows
+(amd64 and arm64) are attached to the GitHub release.
 
 ### Added
 - CI pipeline (GitHub Actions) — test on Linux, macOS, Windows with race detection

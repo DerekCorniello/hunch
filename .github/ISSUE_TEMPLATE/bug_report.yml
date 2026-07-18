@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in hunch does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `hunch ...`
+        2. Type `...`
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `hunch doctor`
+      description: This covers your version, daemon state, database, and shell integration in one shot.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: shell
+    attributes:
+      label: Shell and version
+      placeholder: "zsh 5.9"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: "Arch Linux 6.9.3 / macOS 14.5 / Windows 11 23H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: From `~/.local/share/hunch/hunch.log`. Redact anything sensitive before pasting.
+      render: text

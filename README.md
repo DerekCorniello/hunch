@@ -21,15 +21,17 @@ hunch init --auto
 # Restart your shell, and you're done.
 # Hunch learns from every command. Predictions appear as you type.
 
-# Start using it — predictions appear as ghost text
+# Start using it - predictions appear as ghost text
 git clone https://github.com/user/repo.git
 # ghost text: cd repo          press Right or End to accept
+```
 
 After a few commands, Hunch learns your workflows:
+
 ```text
-git clone REPO → cd STR
-cargo build    → cargo run
-ssh STR        → ssh STR
+git clone REPO -> cd STR
+cargo build    -> cargo run
+ssh STR        -> ssh STR
 ```
 
 ---
