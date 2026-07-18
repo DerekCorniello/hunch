@@ -215,16 +215,21 @@ func TestFetchLatestVersionRejectsNonOK(t *testing.T) {
 }
 
 func TestWithPermissionHintOnlyAnnotatesPermissionErrors(t *testing.T) {
-	permErr := withPermissionHint(fs.ErrPermission, "/usr/local/bin/hunch")
-	if !strings.Contains(permErr.Error(), "/usr/local/bin") {
-		t.Errorf("permission error should name the directory, got %q", permErr)
+	// Built with filepath so the expected separator matches the hint's own
+	// filepath.Dir output on Windows as well as Unix.
+	exe := filepath.Join("usr", "local", "bin", "hunch")
+	wantDir := filepath.Dir(exe)
+
+	permErr := withPermissionHint(fs.ErrPermission, exe)
+	if !strings.Contains(permErr.Error(), wantDir) {
+		t.Errorf("permission error should name %q, got %q", wantDir, permErr)
 	}
 	if !errors.Is(permErr, fs.ErrPermission) {
 		t.Error("wrapping should preserve errors.Is(fs.ErrPermission)")
 	}
 
 	other := errors.New("connection reset")
-	if got := withPermissionHint(other, "/usr/local/bin/hunch"); got.Error() != "connection reset" {
+	if got := withPermissionHint(other, exe); got.Error() != "connection reset" {
 		t.Errorf("non-permission error was modified: %q", got)
 	}
 }
