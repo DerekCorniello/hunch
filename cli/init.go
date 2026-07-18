@@ -193,7 +193,7 @@ func offerHistoryImport(shell string) {
 
 	fmt.Fprintf(os.Stderr, "\nFound %s (%d commands).\n", historyPath, cmdCount)
 	if cmdCount > 50000 {
-		fmt.Fprintf(os.Stderr, "Large history detected — importing may take a moment.\n")
+		fmt.Fprintf(os.Stderr, "Large history detected - importing may take a moment.\n")
 	}
 
 	fmt.Fprintf(os.Stderr, "\nImport your command history to jump-start predictions? [Y/n]: ")

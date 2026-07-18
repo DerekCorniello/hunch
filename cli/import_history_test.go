@@ -11,9 +11,9 @@ import (
 
 func TestStripZshMeta(t *testing.T) {
 	tests := []struct {
-		name  string
-		line  string
-		want  string
+		name string
+		line string
+		want string
 	}{
 		{name: "simple", line: ": 1234567890:0;git commit -m init", want: "git commit -m init"},
 		{name: "with_extra_colons", line: ": 1234567890:0;echo hello:world", want: "echo hello:world"},
@@ -446,5 +446,53 @@ func TestSendSeed_BuildsValidSeed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "connect to daemon") {
 		t.Errorf("error = %q, want 'connect to daemon'", err)
+	}
+}
+
+func TestParsePowerShellOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{
+			name: "commands",
+			out:  "git status\ngit add .\ngit commit -m init\n",
+			want: []string{"git status", "git add .", "git commit -m init"},
+		},
+		{
+			name: "skips_blank_and_whitespace_lines",
+			out:  "git status\n\n   \ngit push\n",
+			want: []string{"git status", "git push"},
+		},
+		{
+			name: "trims_surrounding_whitespace",
+			out:  "  git status  \n\tgit push\t\n",
+			want: []string{"git status", "git push"},
+		},
+		{
+			name: "crlf_line_endings",
+			out:  "git status\r\ngit push\r\n",
+			want: []string{"git status", "git push"},
+		},
+		{name: "empty", out: "", want: nil},
+		{name: "only_blank_lines", out: "\n\n\n", want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parsePowerShellOutput(strings.NewReader(tt.out))
+			if err != nil {
+				t.Fatalf("parsePowerShellOutput: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d commands %q, want %d %q", len(got), got, len(tt.want), tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("command %d = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }

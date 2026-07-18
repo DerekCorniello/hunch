@@ -4,7 +4,7 @@ LDFLAGS := -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(VERSION)"
 
 BIN := hunch
 
-.PHONY: all build test test-race test-zsh test-e2e vet lint lint-shell clean install hooks check
+.PHONY: all build test test-race test-zsh test-e2e fmt vet lint lint-shell clean install hooks check
 
 all: hooks build
 
@@ -25,10 +25,15 @@ test-zsh:
 test-e2e:
 	bash scripts/e2e-test.sh
 
+fmt:
+	$(GO)fmt -w .
+
 vet:
 	$(GO) vet ./...
 
 lint:
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then echo "needs gofmt (run: make fmt):"; echo "$$unformatted"; exit 1; fi
 	$(GO) vet ./...
 	which staticcheck 2>/dev/null && staticcheck ./...
 

@@ -15,7 +15,7 @@ func Run(args []string) error {
 	}
 
 	switch args[0] {
-	case "--version", "-v":
+	case "version", "--version", "-v":
 		fmt.Println(Version)
 		return nil
 	case "--help", "-h":
@@ -68,7 +68,8 @@ Commands:
   uninstall            Remove hunch from your system
     --yes, -y          Skip confirmation prompt
   doctor               Check hunch installation and daemon health
-  update               Check for and apply updates (re-installs via go install)
+  update               Download and install the latest release
+  version              Print version
   stats                Show daemon statistics (shortcut for: client stats)
   predict [flags]      Get top predictions (shortcut for: client predict)
     --state <s>        Comma-separated previous commands

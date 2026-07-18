@@ -141,10 +141,10 @@ func runImport(shell, path string, threads int, progress func(string)) error {
 		return fmt.Errorf("parse history: %w", err)
 	}
 	if len(rawCmds) == 0 {
-		progress(" — no commands found\n")
+		progress(" - no commands found\n")
 		return nil
 	}
-	progress(fmt.Sprintf(" — %d commands, ", len(rawCmds)))
+	progress(fmt.Sprintf(" - %d commands, ", len(rawCmds)))
 
 	normalized, err := normalizeConcurrent(rawCmds, threads)
 	if err != nil {
@@ -375,8 +375,13 @@ func parsePowerShellHistory() ([]string, error) {
 		return nil, err
 	}
 
+	return parsePowerShellOutput(strings.NewReader(string(out)))
+}
+
+// parsePowerShellOutput reads one command per line from Get-History output.
+func parsePowerShellOutput(r io.Reader) ([]string, error) {
 	var cmds []string
-	sc := newHistoryScanner(strings.NewReader(string(out)))
+	sc := newHistoryScanner(r)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line != "" {

@@ -16,10 +16,10 @@ jobs:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
 
@@ -33,7 +33,7 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then mv hunch-${{ matrix.goos }}-${{ matrix.goarch }} hunch-${{ matrix.goos }}-${{ matrix.goarch }}.exe; fi
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: hunch-${{ matrix.goos }}-${{ matrix.goarch }}
           path: hunch-${{ matrix.goos }}-${{ matrix.goarch }}*
@@ -42,9 +42,9 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: hunch-*/*
           generate_release_notes: true

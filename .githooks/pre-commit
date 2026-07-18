@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "=== pre-commit: gofmt ==="
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+	echo "FAIL: these files need gofmt (run: make fmt)"
+	echo "$unformatted"
+	exit 1
+fi
+echo "    formatted: ok"
+
 echo "=== pre-commit: go vet ==="
 go vet ./...
 

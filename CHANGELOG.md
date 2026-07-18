@@ -1,12 +1,37 @@
 # Changelog
 
+## v0.1.1 - 2026-07-18
+
+### Fixed
+- `hunch update` shelled out to `go install`, so it failed for anyone who
+  installed a pre-built binary. It now downloads the release asset for the
+  running platform and replaces the executable in place, with no Go toolchain
+  required. Unwritable install directories and platforms with no published
+  binary now report actionable errors instead of failing opaquely.
+- bash and fish printed the post-command hint with a non-ASCII marker while
+  PowerShell used `>`. All three now use `hunch > `.
+
+### Added
+- `hunch version` as an alias for `--version`/`-v`.
+- gofmt enforcement in the pre-commit hook and CI, plus a `make fmt` target.
+  Formatting had never been checked, and three files were unformatted.
+- Tests for the update path, `appendToRc`, the PowerShell history parser, and
+  command dispatch. cli coverage 57% to 61%.
+
+### Changed
+- GitHub Actions bumped to current majors (checkout v5, setup-go v6,
+  upload/download-artifact v5, action-gh-release v3), clearing the Node 20
+  deprecation warnings.
+- Replaced non-ASCII characters in prose, comments, and program output with
+  ASCII equivalents. Architecture diagrams keep their box-drawing characters.
+
 ## v0.1.0 - 2026-07-18
 
 First tagged release. Pre-built binaries for Linux, macOS, and Windows
 (amd64 and arm64) are attached to the GitHub release.
 
 ### Added
-- CI pipeline (GitHub Actions) — test on Linux, macOS, Windows with race detection
+- CI pipeline (GitHub Actions) - test on Linux, macOS, Windows with race detection
 - `hunch daemon run --seed <path>` flag for seeding the graph on first start
 - Pre-commit hooks (go vet, cross-compile check, core unit tests)
 - Integration tests for history parsers (zsh, bash, fish, markdown)
@@ -24,7 +49,7 @@ First tagged release. Pre-built binaries for Linux, macOS, and Windows
 - Daemon: missing read/write deadlines on IPC connections (slow-loris / goroutine leak)
 - Daemon: missing panic recovery in connection goroutines (single bad request crashes daemon)
 - Daemon: no SQLite connection pool limits (SetMaxOpenConns=1)
-- Daemon: world-readable lock and PID files (0644 → 0600)
+- Daemon: world-readable lock and PID files (0644 -> 0600)
 - Daemon: world-readable Unix socket (now 0700)
 - Windows: lock file `OVERLAPPED` struct size (too small on 64-bit)
 - Log file descriptor leak in parent process after `hunch daemon start`

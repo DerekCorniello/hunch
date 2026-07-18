@@ -34,7 +34,7 @@ function _hunch_hint
 		--cwd "$PWD" \
 		--prior-outcome "$_hunch_prev_outcome" \
 		--limit 1 --raw 2>/dev/null)
-	test -n "$s"; and echo (set_color brblack)"hunch ▸ $s"(set_color normal)
+	test -n "$s"; and echo (set_color brblack)"hunch > $s"(set_color normal)
 end
 
 function _hunch_record --on-event fish_postexec

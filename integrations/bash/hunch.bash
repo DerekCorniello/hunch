@@ -35,7 +35,7 @@ _hunch_hint() {
 		--cwd "$PWD" \
 		--prior-outcome "$_HUNCH_PREV_OUTCOME" \
 		--limit 1 --raw 2>/dev/null)
-	[[ -n $s ]] && printf '\033[2mhunch \xe2\x96\xb8 %s\033[0m\n' "$s"
+	[[ -n $s ]] && printf '\033[2mhunch > %s\033[0m\n' "$s"
 }
 
 # _hunch_prompt runs before each prompt. It records the command that just ran

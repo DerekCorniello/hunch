@@ -550,8 +550,6 @@ func TestClientRecordCustomTimestamp(t *testing.T) {
 	}
 }
 
-
-
 func TestEnsureIntegrationsSuccess(t *testing.T) {
 	err := EnsureIntegrations()
 	if err != nil {
@@ -585,5 +583,3 @@ func TestDaemonStatusNotRunning(t *testing.T) {
 		t.Fatalf("daemon status when not running: got %v, want ErrDaemonNotRunning", err)
 	}
 }
-
-

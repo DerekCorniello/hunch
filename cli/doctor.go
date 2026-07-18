@@ -126,7 +126,7 @@ func cmdDoctor() error {
 		fmt.Println("All checks passed.")
 		return nil
 	}
-	fmt.Println("Some checks failed — see warnings above.")
+	fmt.Println("Some checks failed - see warnings above.")
 	return fmt.Errorf("doctor: some checks failed")
 }
 

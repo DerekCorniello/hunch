@@ -5,7 +5,7 @@
 
 Hunch is a shell companion that learns your command-line behavior and predicts what you're most likely to do next.
 
-It builds a lightweight statistical model from your own command history — no AI, no cloud, no telemetry. Just fast, local suggestions that get better over time.
+It builds a lightweight statistical model from your own command history - no AI, no cloud, no telemetry. Just fast, local suggestions that get better over time.
 
 ---
 
@@ -59,9 +59,9 @@ On macOS, Gatekeeper will block the binary on first run because it is
 unsigned. Clear the quarantine attribute with
 `xattr -d com.apple.quarantine /usr/local/bin/hunch`.
 
-To upgrade later, download the new binary the same way. (`hunch update`
-reinstalls via `go install` and so requires a Go toolchain; it is meant for
-source installs.)
+To upgrade later, run `hunch update`. It downloads the current release for
+your platform and replaces the running binary in place, so no Go toolchain
+is needed.
 
 ### From source
 
@@ -85,7 +85,7 @@ go install -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(git descri
 
 ### Dependencies
 
-Hunch requires no external runtime dependencies. The Go binary is fully static (SQLite is handled by [`modernc.org/sqlite`](https://modernc.org/sqlite), a pure-Go port — no CGO needed).
+Hunch requires no external runtime dependencies. The Go binary is fully static (SQLite is handled by [`modernc.org/sqlite`](https://modernc.org/sqlite), a pure-Go port - no CGO needed).
 
 ---
 
@@ -124,9 +124,9 @@ post-command hint showing the most likely next command.
 | Shell | UX | Mechanism | Accept / cycle |
 |-------|----|-----------|----------------|
 | zsh | **Inline ghost text** as you type | persistent `serve` coprocess + `POSTDISPLAY` | Right/End to accept; Alt-n / Alt-p to cycle |
-| bash | Post-command hint line | `client predict` in `PROMPT_COMMAND` | — (type or copy) |
-| fish | Post-command hint line | `client predict` in `fish_postexec` | — (fish's own autosuggestions still apply) |
-| PowerShell | Post-command hint line | `client predict` in a wrapped `prompt` | — |
+| bash | Post-command hint line | `client predict` in `PROMPT_COMMAND` | - (type or copy) |
+| fish | Post-command hint line | `client predict` in `fish_postexec` | - (fish's own autosuggestions still apply) |
+| PowerShell | Post-command hint line | `client predict` in a wrapped `prompt` | - |
 
 > **Why not inline everywhere?** bash has no ghost-text primitive without a
 > large add-on like ble.sh; fish's native autosuggestion engine owns inline
@@ -202,7 +202,7 @@ Send an IPC operation to the running daemon.
 #### `hunch client record`
 
 ```
---state <prev1,prev2>   Previous 1–2 commands (comma-separated)
+--state <prev1,prev2>   Previous 1-2 commands (comma-separated)
 --next <command>        The command that was run
 --at <timestamp>        ISO 8601 timestamp
 ```
@@ -210,7 +210,7 @@ Send an IPC operation to the running daemon.
 #### `hunch client predict`
 
 ```
---state <prev1,prev2>   Previous 1–2 commands (comma-separated)
+--state <prev1,prev2>   Previous 1-2 commands (comma-separated)
 --prefix <text>         Current buffer text for filtering
 --limit <n>             Max suggestions (default: 3)
 ```
@@ -235,7 +235,15 @@ Remove hunch from your system. Stops the daemon, removes all data files (databas
 
 ### `hunch update`
 
-Check for and install updates. Queries GitHub for the latest release, compares versions, and re-installs via `go install` if a newer version is available. Automatically restarts the daemon after updating.
+Check for and install updates. Queries GitHub for the latest release and, if a
+newer version exists, downloads the binary built for your platform and replaces
+the running executable in place. No Go toolchain is required. The daemon is
+restarted automatically afterwards.
+
+The new binary is downloaded next to the current one and moved into place, so
+the directory holding `hunch` must be writable. If it is not (for example
+`/usr/local/bin` owned by root), re-run with elevated privileges. Platforms
+with no published binary are told to reinstall from source instead.
 
 ### Shortcut commands
 
@@ -306,22 +314,22 @@ ignore = ['(?i)--api-token']  # extra sensitive-command patterns to never record
 log_level = "info"
 ```
 
-Precedence (lowest to highest): built-in defaults → config file → env vars → CLI flags.
+Precedence (lowest to highest): built-in defaults -> config file -> env vars -> CLI flags.
 
 ---
 
 ## Architecture
 
 ```
-shell → integration (thin adapter) → daemon (background service) → core/ (logic)
-                                          │
+shell -> integration (thin adapter) -> daemon (background service) -> core/ (logic)
+                                          |
                                      SQLite (WAL)
 ```
 
-- **core/** — Pure logic. `normalize` (two-phase: unwrap wrappers, classify tokens), `graph` (transition counts), `predict` (additive-smoothed exponential decay scoring). Deterministic and stateless.
-- **daemon/** — Background service. Owns SQLite, receives IPC events, calls core to update and predict. One request per connection over a Unix socket.
-- **cli/** — Admin interface. Routes to init/daemon/client subcommands. Links the full daemon package.
-- **integrations/** — Shell-specific adapters. Minimal shims that shell out to `hunch client`. No learning logic.
+- **core/** - Pure logic. `normalize` (two-phase: unwrap wrappers, classify tokens), `graph` (transition counts), `predict` (additive-smoothed exponential decay scoring). Deterministic and stateless.
+- **daemon/** - Background service. Owns SQLite, receives IPC events, calls core to update and predict. One request per connection over a Unix socket.
+- **cli/** - Admin interface. Routes to init/daemon/client subcommands. Links the full daemon package.
+- **integrations/** - Shell-specific adapters. Minimal shims that shell out to `hunch client`. No learning logic.
 
 See [AGENTS.md](AGENTS.md) for the full architecture and design decisions.
 
@@ -331,10 +339,10 @@ See [AGENTS.md](AGENTS.md) for the full architecture and design decisions.
 
 | Platform | Status |
 |----------|--------|
-| Linux (x86_64, aarch64) | ✅ Full support |
-| macOS (x86_64, arm64) | ✅ Supported |
-| Windows (x86_64) | ✅ Supported (Unix domain sockets) |
-| Other Unix (FreeBSD, etc.) | ✅ Supported (flock, XDG paths) |
+| Linux (x86_64, aarch64) | Full support |
+| macOS (x86_64, arm64) | Supported |
+| Windows (x86_64) | Supported (Unix domain sockets) |
+| Other Unix (FreeBSD, etc.) | Supported (flock, XDG paths) |
 
 On Windows, you may need to exclude `%LocalAppData%\hunch\` from Windows Defender
 real-time scanning to avoid lock contention with the SQLite database.
@@ -408,7 +416,7 @@ Register-ScheduledTask -TaskName HunchDaemon -Action $action -Trigger $trigger
 
 ## Non-goals
 
-- No AI/LLM — purely statistical learning
+- No AI/LLM - purely statistical learning
 - No cloud sync or telemetry
 - No distributed system
 - No multi-user graph merging
