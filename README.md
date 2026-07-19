@@ -173,7 +173,8 @@ Import shell command history as training data for predictions. Supports `zsh`, `
 Processes history by parsing commands, normalizing them into templates, building
 state transitions, and importing into the daemon as a seed.
 
-Safe to re-run: counts merge rather than reset. Worth doing after an upgrade
+Safe to re-run: counts combine by maximum, so importing the same history twice
+leaves the graph unchanged rather than doubling it. Worth doing after an upgrade
 that changes how transitions are recorded, since the import backfills context
 that older data does not have.
 

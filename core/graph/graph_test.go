@@ -70,6 +70,9 @@ func TestGraphRecordObsAccumulatesSignals(t *testing.T) {
 	}
 }
 
+// Merge combines by maximum rather than addition, because a seed states how
+// many times a transition was observed rather than supplying that many fresh
+// observations. See the comment in Merge.
 func TestGraphMergeCombinesSignals(t *testing.T) {
 	g := New(2)
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
@@ -86,17 +89,17 @@ func TestGraphMergeCombinesSignals(t *testing.T) {
 	}
 
 	got := g.Transitions(state)[0]
-	if got.Count != 6 {
-		t.Errorf("Count = %d, want 6 (1 + 5)", got.Count)
+	if got.Count != 5 {
+		t.Errorf("Count = %d, want 5 (max of 1 and 5)", got.Count)
 	}
-	if got.CWDs["/proj"] != 5 || got.CWDs["/seed"] != 1 {
-		t.Errorf("merged CWDs = %v, want map[/proj:5 /seed:1]", got.CWDs)
+	if got.CWDs["/proj"] != 4 || got.CWDs["/seed"] != 1 {
+		t.Errorf("merged CWDs = %v, want map[/proj:4 /seed:1]", got.CWDs)
 	}
-	if got.Accepted != 3 {
-		t.Errorf("merged Accepted = %d, want 3 (1 + 2)", got.Accepted)
+	if got.Accepted != 2 {
+		t.Errorf("merged Accepted = %d, want 2 (max of 1 and 2)", got.Accepted)
 	}
-	if got.NextSuccess != 4 || got.NextFailure != 2 {
-		t.Errorf("merged next outcomes = (%d,%d), want (4,2)", got.NextSuccess, got.NextFailure)
+	if got.NextSuccess != 3 || got.NextFailure != 2 {
+		t.Errorf("merged next outcomes = (%d,%d), want (3,2)", got.NextSuccess, got.NextFailure)
 	}
 }
 
@@ -178,7 +181,7 @@ func TestGraphMergeAddsNewTransitions(t *testing.T) {
 	}
 }
 
-func TestGraphMergeIncrementsExisting(t *testing.T) {
+func TestGraphMergeTakesMaxOfExisting(t *testing.T) {
 	g := New(2)
 
 	state := []string{"", "git add PATH"}
@@ -200,8 +203,8 @@ func TestGraphMergeIncrementsExisting(t *testing.T) {
 	if len(transitions) != 1 {
 		t.Fatalf("Transitions returned %d, want 1", len(transitions))
 	}
-	if transitions[0].Count != 3 {
-		t.Errorf("Count = %d, want 3 (1 existing + 2 seed)", transitions[0].Count)
+	if transitions[0].Count != 2 {
+		t.Errorf("Count = %d, want 2 (max of 1 existing and 2 seed)", transitions[0].Count)
 	}
 	if !transitions[0].LastSeen.Equal(t2) {
 		t.Errorf("LastSeen = %v, want %v (newer should win)", transitions[0].LastSeen, t2)
@@ -603,5 +606,53 @@ func TestMergeValidateNonPositiveCount(t *testing.T) {
 	}
 	if err := g.Merge(seed); err == nil {
 		t.Fatal("expected error for negative count")
+	}
+}
+
+// Importing the same history twice must not change the graph. It did: counts
+// were added, so every re-import doubled them, and a command run once became
+// indistinguishable from a habit. Shell history overlaps what the daemon
+// already recorded live, so the same double counting happened on the very
+// first import too.
+func TestMergeIsIdempotent(t *testing.T) {
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	seed := []Transition{
+		{State: []string{"", "cd PATH"}, Next: "make STR", Count: 4, LastSeen: now},
+		{State: []string{"cd PATH"}, Next: "make STR", Count: 7, LastSeen: now},
+	}
+
+	g := New(2)
+	for range 3 {
+		if err := g.Merge(seed); err != nil {
+			t.Fatalf("Merge: %v", err)
+		}
+	}
+
+	for _, want := range seed {
+		got := g.Transitions(want.State)
+		if len(got) != 1 {
+			t.Fatalf("state %v returned %d transitions, want 1", want.State, len(got))
+		}
+		if got[0].Count != want.Count {
+			t.Errorf("state %v count = %d after three merges, want %d", want.State, got[0].Count, want.Count)
+		}
+	}
+}
+
+// A command the daemon saw once live, which then appears once in the imported
+// history, is still one observation and must stay below the evidence
+// threshold.
+func TestMergeDoesNotInflateSingleObservation(t *testing.T) {
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"hunch STR", "git status"}
+
+	g := New(2)
+	g.Record(state, "zstyle STR", now)
+	if err := g.Merge([]Transition{{State: state, Next: "zstyle STR", Count: 1, LastSeen: now}}); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+
+	if got := g.Transitions(state)[0].Count; got != 1 {
+		t.Errorf("count = %d after live record plus import of the same command, want 1", got)
 	}
 }

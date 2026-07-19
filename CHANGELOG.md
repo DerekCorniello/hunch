@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Fixed
+- Importing history no longer inflates counts. `Merge` added seed counts to
+  existing ones, but a seed states how many times a transition was observed
+  rather than supplying that many new observations. A shell history file
+  records the same commands the daemon already saw live, so the first import
+  counted them twice and each re-import doubled them again, which turned
+  one-off commands into apparent habits. Counts now combine by maximum, making
+  import idempotent.
 - `hunch import-history` records generalized contexts, so an imported graph
   supports the same fallbacks as a learned one. It previously recorded only the
   exact two-command context, which left almost every imported transition at a

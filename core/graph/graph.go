@@ -299,7 +299,16 @@ func (g *Graph) Merge(seed []Transition) error {
 			e = &entry{}
 			inner[t.Next] = e
 		}
-		e.count += t.Count
+		// Counts are combined by maximum, not addition.
+		//
+		// A seed asserts how many times a transition has been observed, not
+		// how many observations to add. The two differ because a shell
+		// history file records the same commands the daemon already saw
+		// live, so adding would count every one of them twice, and importing
+		// the same history again would double them again. Taking the maximum
+		// makes import idempotent and keeps a command run once from looking
+		// like a habit.
+		e.count = max(e.count, t.Count)
 		if t.LastSeen.After(e.lastSeen) {
 			e.lastSeen = t.LastSeen
 		}
@@ -307,13 +316,13 @@ func (g *Graph) Merge(seed []Transition) error {
 			if e.cwds == nil {
 				e.cwds = make(map[string]int)
 			}
-			e.cwds[cwd] += c
+			e.cwds[cwd] = max(e.cwds[cwd], c)
 		}
-		e.nextSuccess += t.NextSuccess
-		e.nextFailure += t.NextFailure
-		e.priorSuccess += t.PriorSuccess
-		e.priorFailure += t.PriorFailure
-		e.accepted += t.Accepted
+		e.nextSuccess = max(e.nextSuccess, t.NextSuccess)
+		e.nextFailure = max(e.nextFailure, t.NextFailure)
+		e.priorSuccess = max(e.priorSuccess, t.PriorSuccess)
+		e.priorFailure = max(e.priorFailure, t.PriorFailure)
+		e.accepted = max(e.accepted, t.Accepted)
 	}
 	return nil
 }
