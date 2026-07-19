@@ -1,4 +1,4 @@
-package daemon
+package graph
 
 import (
 	"strings"
@@ -67,7 +67,7 @@ func TestBackoffStates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := backoffStates(tt.state, tt.hasCWD)
+			got := BackoffStates(tt.state, tt.hasCWD)
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d states %v, want %d %v", len(got), got, len(tt.want), tt.want)
 			}
@@ -99,13 +99,13 @@ func TestBackoffGeneralizationsAreNeverEmpty(t *testing.T) {
 	}
 
 	for _, in := range inputs {
-		got := backoffStates(in.state, in.hasCWD)
+		got := BackoffStates(in.state, in.hasCWD)
 		for i, state := range got[1:] {
 			if len(state) == 0 {
-				t.Errorf("backoffStates(%v, %v) generalization %d is an empty key", in.state, in.hasCWD, i+1)
+				t.Errorf("BackoffStates(%v, %v) generalization %d is an empty key", in.state, in.hasCWD, i+1)
 			}
 			if allEmpty(state) {
-				t.Errorf("backoffStates(%v, %v) generalization %d carries no context: %v", in.state, in.hasCWD, i+1, state)
+				t.Errorf("BackoffStates(%v, %v) generalization %d carries no context: %v", in.state, in.hasCWD, i+1, state)
 			}
 		}
 	}
@@ -113,7 +113,7 @@ func TestBackoffGeneralizationsAreNeverEmpty(t *testing.T) {
 
 func TestBackoffStatesKeepsExactContextFirst(t *testing.T) {
 	state := []string{"/proj", "a", "b"}
-	got := backoffStates(state, true)
+	got := BackoffStates(state, true)
 	if len(got) == 0 || strings.Join(got[0], "\x00") != strings.Join(state, "\x00") {
 		t.Errorf("first state = %v, want the exact context %v", got[0], state)
 	}

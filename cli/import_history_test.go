@@ -350,6 +350,9 @@ func TestIsTerminal(t *testing.T) {
 	_ = isTerminal()
 }
 
+// Counts include the generalized contexts each observation is recorded under,
+// which is what lets an imported graph answer the same fallback queries as a
+// learned one. See graph.BackoffStates.
 func TestBuildTransitions(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -357,9 +360,12 @@ func TestBuildTransitions(t *testing.T) {
 		expect int
 	}{
 		{name: "empty", input: nil, expect: 0},
+		// The first command has only empty padding for context, so there is
+		// no informative generalization to add.
 		{name: "single", input: []string{"a"}, expect: 1},
-		{name: "two_commands", input: []string{"a", "b"}, expect: 2},
-		{name: "three_commands", input: []string{"a", "b", "c"}, expect: 3},
+		// "b" is recorded under ["", "a"] and under the shortened ["a"].
+		{name: "two_commands", input: []string{"a", "b"}, expect: 3},
+		{name: "three_commands", input: []string{"a", "b", "c"}, expect: 5},
 		{name: "skips_empty_but_still_records", input: []string{"a", "", "b"}, expect: 2},
 		{name: "all_empty", input: []string{"", "", ""}, expect: 0},
 	}
@@ -377,8 +383,10 @@ func TestBuildTransitions_StateTracking(t *testing.T) {
 	normalized := []string{"git add PATH", "git commit FLAG STR", "git push STR"}
 	transitions := buildTransitions(normalized)
 
-	if len(transitions) != 3 {
-		t.Fatalf("expected 3 transitions, got %d", len(transitions))
+	// Three observations, plus a generalized key for each of the two that
+	// have a real prior command to shorten.
+	if len(transitions) != 5 {
+		t.Fatalf("expected 5 transitions, got %d", len(transitions))
 	}
 
 	foundInitial := false
@@ -388,9 +396,11 @@ func TestBuildTransitions_StateTracking(t *testing.T) {
 		case "git add PATH":
 			foundInitial = true
 		case "git commit FLAG STR":
-			foundCommit = true
-			if len(tx.State) != 2 || tx.State[0] != "" || tx.State[1] != "git add PATH" {
-				t.Errorf("unexpected state for git commit: %v", tx.State)
+			if len(tx.State) == 2 {
+				foundCommit = true
+				if tx.State[0] != "" || tx.State[1] != "git add PATH" {
+					t.Errorf("unexpected state for git commit: %v", tx.State)
+				}
 			}
 		}
 	}

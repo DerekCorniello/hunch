@@ -193,9 +193,12 @@ func buildTransitions(normalized []string) []graph.Transition {
 
 	var prev1, prev2 string
 	for _, cmd := range normalized {
-		state := []string{prev1, prev2}
 		if cmd != "" {
-			g.Record(state, cmd, now)
+			// Expand exactly as the daemon does, so an imported graph
+			// supports the same fallbacks as a learned one.
+			for _, state := range graph.BackoffStates([]string{prev1, prev2}, false) {
+				g.Record(state, cmd, now)
+			}
 		}
 		prev1 = prev2
 		prev2 = cmd
@@ -232,41 +235,54 @@ func sendSeed(transitions []graph.Transition) error {
 }
 
 func buildRawMappings(rawCmds, normalized []string) []ipc.RawExampleJSON {
-	type key struct {
-		prev1, prev2 string
-		template     string
-		raw          string
+	// Expand exactly as buildTransitions does. A raw example keyed only to
+	// the exact context cannot be found when a prediction arrives through a
+	// generalization, and a suggestion with no concrete command behind it is
+	// suppressed rather than shown as a bare template.
+	type stateKey struct {
+		state    string
+		template string
+		raw      string
 	}
-	counts := make(map[key]int)
+	stateCounts := make(map[stateKey]int)
+	states := make(map[string][]string)
 
-	// Mirror the state-tracking logic in buildTransitions so the raw
-	// examples are keyed by the same prior-command context as the graph.
 	var prev1, prev2 string
 	for i, tmpl := range normalized {
 		if tmpl != "" && rawCmds[i] != "" {
-			counts[key{prev1, prev2, tmpl, rawCmds[i]}]++
+			for _, st := range graph.BackoffStates([]string{prev1, prev2}, false) {
+				trimmed := nonEmpty(st)
+				joined := strings.Join(trimmed, "\x00")
+				states[joined] = trimmed
+				stateCounts[stateKey{joined, tmpl, rawCmds[i]}]++
+			}
 		}
 		prev1 = prev2
 		prev2 = tmpl
 	}
 
-	list := make([]ipc.RawExampleJSON, 0, len(counts))
-	for k, count := range counts {
-		var state []string
-		if k.prev1 != "" {
-			state = append(state, k.prev1)
-		}
-		if k.prev2 != "" {
-			state = append(state, k.prev2)
-		}
+	list := make([]ipc.RawExampleJSON, 0, len(stateCounts))
+	for k, count := range stateCounts {
 		list = append(list, ipc.RawExampleJSON{
-			State:    state,
+			State:    states[k.state],
 			Template: k.template,
 			Raw:      k.raw,
 			Count:    count,
 		})
 	}
 	return list
+}
+
+// nonEmpty drops the empty padding from a state slice, matching how the
+// daemon keys raw examples.
+func nonEmpty(state []string) []string {
+	out := make([]string, 0, len(state))
+	for _, s := range state {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func sendRawExamples(examples []ipc.RawExampleJSON) error {

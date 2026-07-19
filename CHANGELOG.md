@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Fixed
+- `hunch import-history` records generalized contexts, so an imported graph
+  supports the same fallbacks as a learned one. It previously recorded only the
+  exact two-command context, which left almost every imported transition at a
+  count of 1. Combined with the new evidence threshold that meant a freshly
+  imported history produced very few suggestions. Raw examples are expanded the
+  same way, since a generalized hit with no concrete command behind it is
+  suppressed rather than shown. Re-run `hunch import-history <shell>` to
+  backfill an existing graph.
 - Commands run only once are no longer suggested. A transition observed a
   single time in a context that is never revisited is the only candidate for
   that state, so additive smoothing scores it 1.0 and it was offered as

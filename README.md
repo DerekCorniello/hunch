@@ -173,6 +173,10 @@ Import shell command history as training data for predictions. Supports `zsh`, `
 Processes history by parsing commands, normalizing them into templates, building
 state transitions, and importing into the daemon as a seed.
 
+Safe to re-run: counts merge rather than reset. Worth doing after an upgrade
+that changes how transitions are recorded, since the import backfills context
+that older data does not have.
+
 ### `hunch eval <shell>`
 
 Measure how well hunch predicts your own history. Replays your shell history in
