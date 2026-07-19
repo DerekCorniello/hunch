@@ -300,6 +300,7 @@ hunch predict --state "git add,git commit" --limit 5
 | `HUNCH_DELTA` | Prior-outcome boost strength | `0.5` |
 | `HUNCH_EPSILON` | Confirmed-acceptance boost strength | `0.5` |
 | `HUNCH_MIN_CONFIDENCE` | Score a generalized match must reach to be shown | `0.20` |
+| `HUNCH_MIN_COUNT` | Times a command must have been seen before it is suggested | `2` |
 | `HUNCH_EXTRA_PARENTS` | Extra parent commands (comma-separated) | (none) |
 | `HUNCH_IGNORE` | Extra regexes for sensitive commands to never record (comma-separated) | (none) |
 | `HUNCH_LOG_LEVEL` | Log level | `info` |
@@ -308,6 +309,14 @@ hunch predict --state "git add,git commit" --limit 5
 Each scoring strength (`beta`/`gamma`/`delta`/`epsilon`) is a soft,
 multiplicative adjustment that is the identity when its signal is absent; set
 any to `0` to disable that signal.
+
+`min_count` is how many times you must have run a command in a given context
+before hunch will suggest it. The default of `2` means one-off commands are
+never suggested: hunch predicts habits, and a habit is repeated by definition.
+This matters more than it sounds, because a command run once in a context you
+never revisit is the only candidate for that state, so it scores as the most
+confident suggestion possible on the least evidence possible. Set it to `1` to
+be suggested everything, including things you ran once by accident.
 
 `min_confidence` controls how readily hunch generalizes. An exact-context match
 is always shown. When there is no exact match, hunch widens the context (drop
@@ -338,6 +347,7 @@ gamma = 0.5    # failure-rate suppression
 delta = 0.5    # prior-outcome boost
 epsilon = 0.5  # confirmed-acceptance boost
 min_confidence = 0.20  # bar for suggestions from a generalized context
+min_count = 2          # ignore commands you have only run once
 accept_keys = ["right", "end"]
 extra_parents = ["mycli", "teamtool"]
 ignore = ['(?i)--api-token']  # extra sensitive-command patterns to never record

@@ -20,9 +20,11 @@ type Options struct {
 	Delta    float64
 	Epsilon  float64
 
-	// MinConfidence gates suggestions drawn from a generalized context,
-	// mirroring the daemon.
+	// MinConfidence gates suggestions drawn from a generalized context, and
+	// MinCount gates every suggestion on how much evidence backs it. Both
+	// mirror the daemon.
 	MinConfidence float64
+	MinCount      int
 
 	// Warmup is the number of leading commands to learn from without
 	// scoring. Without it the cold start, where nothing can be predicted,
@@ -45,6 +47,7 @@ func DefaultOptions() Options {
 		Delta:         0.5,
 		Epsilon:       0.5,
 		MinConfidence: 0.20,
+		MinCount:      2,
 		Warmup:        50,
 		Interval:      time.Minute,
 	}
@@ -102,7 +105,7 @@ func Run(templates []string, opts Options) Result {
 			if mostFrequent == actual {
 				result.BaselineTop1++
 			}
-			score(&result, rank(p, prev1, prev2, at, opts.MinConfidence), actual)
+			score(&result, rank(p, prev1, prev2, at, opts), actual)
 		}
 
 		if actual != "" {
@@ -122,20 +125,38 @@ func Run(templates []string, opts Options) Result {
 	return result
 }
 
-// rank mirrors the daemon's fallback: the exact context is trusted as-is,
-// while a narrower one must clear minConfidence before it is offered.
-func rank(p *predict.Predictor, prev1, prev2 string, at time.Time, minConfidence float64) []types.Suggestion {
-	if s := p.Predict(types.State{Previous: []types.Command{{Template: prev1}, {Template: prev2}}}, at, maxRank); len(s) > 0 {
+// rank mirrors the daemon's fallback: every candidate must clear MinCount,
+// the exact context is otherwise trusted as-is, and a narrower context must
+// additionally clear MinConfidence.
+func rank(p *predict.Predictor, prev1, prev2 string, at time.Time, opts Options) []types.Suggestion {
+	query := func(previous []types.Command) []types.Suggestion {
+		return withMinCount(p.Predict(types.State{Previous: previous}, at, maxRank), opts.MinCount)
+	}
+
+	if s := query([]types.Command{{Template: prev1}, {Template: prev2}}); len(s) > 0 {
 		return s
 	}
 	if prev2 == "" {
 		return nil
 	}
-	s := p.Predict(types.State{Previous: []types.Command{{Template: prev2}}}, at, maxRank)
-	if len(s) > 0 && s[0].Score >= minConfidence {
+	if s := query([]types.Command{{Template: prev2}}); len(s) > 0 && s[0].Score >= opts.MinConfidence {
 		return s
 	}
 	return nil
+}
+
+// withMinCount drops suggestions backed by fewer than minCount observations.
+func withMinCount(suggestions []types.Suggestion, minCount int) []types.Suggestion {
+	if minCount <= 1 {
+		return suggestions
+	}
+	kept := suggestions[:0]
+	for _, s := range suggestions {
+		if s.Count >= minCount {
+			kept = append(kept, s)
+		}
+	}
+	return kept
 }
 
 func score(result *Result, suggestions []types.Suggestion, actual string) {

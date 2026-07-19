@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Fixed
+- Commands run only once are no longer suggested. A transition observed a
+  single time in a context that is never revisited is the only candidate for
+  that state, so additive smoothing scores it 1.0 and it was offered as
+  confidently as a daily habit. `min_count` (default `2`) gates every
+  suggestion on evidence, which `min_confidence` cannot do because the problem
+  is maximum probability on minimum evidence. Measured on a 10k-command
+  history, this beats the previous behavior on both axes at once: precision
+  when a suggestion is shown rises from 30.4% to 37.5%, above even the
+  pre-generalization 34.4%, while top-1 stays at 21.9%, well above the
+  pre-generalization 18.9%.
 - Imported seeds no longer vanish on the next daemon restart. `graph.Transition`
   carried no JSON tags, so a seed file's `last_seen` never unmarshaled and every
   imported transition got a zero timestamp. Import reported success and

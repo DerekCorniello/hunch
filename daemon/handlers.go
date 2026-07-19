@@ -284,6 +284,27 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	d.respondSuggestions(conn, suggestions)
 }
 
+// withMinCount drops suggestions backed by too few observations.
+//
+// This is deliberately applied to every level, including the exact-context
+// match that MinConfidence exempts. The two guards answer different questions:
+// MinConfidence asks how likely a candidate is, while this asks how much is
+// known about it. A command run once in a context nobody revisits is the only
+// candidate there, so it scores 1.0 and would otherwise be offered as
+// confidently as a daily habit.
+func withMinCount(suggestions []types.Suggestion, minCount int) []types.Suggestion {
+	if minCount <= 1 {
+		return suggestions
+	}
+	kept := suggestions[:0]
+	for _, s := range suggestions {
+		if s.Count >= minCount {
+			kept = append(kept, s)
+		}
+	}
+	return kept
+}
+
 // predictWithFallback queries the predictor through progressively more general
 // state keys, stopping at the first level that yields a usable answer.
 //
@@ -300,11 +321,11 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 // typing, so level 1 stands alone.
 func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior types.Outcome, prefix string, at time.Time) []types.Suggestion {
 	query := func(previous []types.Command, dir string) []types.Suggestion {
-		return d.pred.Load().Predict(types.State{
+		return withMinCount(d.pred.Load().Predict(types.State{
 			Previous:     previous,
 			CWD:          dir,
 			PriorOutcome: prior,
-		}, at, 0)
+		}, at, 0), d.opts.MinCount)
 	}
 	// confident reports whether a generalized match is strong enough to show.
 	confident := func(s []types.Suggestion) bool {

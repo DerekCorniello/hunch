@@ -30,11 +30,17 @@ type Options struct {
 	// offered from a generalized (fallback) context. The exact-context
 	// match is always trusted; broader matches must clear this bar so
 	// widening coverage does not turn into guessing.
-	MinConfidence float64  `toml:"min_confidence"`
-	ExtraParents  []string `toml:"extra_parents"`
-	Ignore        []string `toml:"ignore"` // extra regexes for sensitive commands to never record
-	LogLevel      string   `toml:"log_level"`
-	SeedPath      string   `toml:"-"` // CLI-only, not in config file
+	MinConfidence float64 `toml:"min_confidence"`
+	// MinCount is how many times a transition must have been observed before
+	// it is offered at all. A transition seen once is the only candidate for
+	// its state, so additive smoothing scores it 1.0: maximum probability on
+	// minimum evidence. Confidence cannot separate a habit from a one-off,
+	// so this does.
+	MinCount     int      `toml:"min_count"`
+	ExtraParents []string `toml:"extra_parents"`
+	Ignore       []string `toml:"ignore"` // extra regexes for sensitive commands to never record
+	LogLevel     string   `toml:"log_level"`
+	SeedPath     string   `toml:"-"` // CLI-only, not in config file
 }
 
 // defaults returns an Options with built-in defaults applied.
@@ -47,6 +53,7 @@ func defaults() Options {
 		Delta:         0.5,
 		Epsilon:       0.5,
 		MinConfidence: 0.20,
+		MinCount:      2,
 		LogLevel:      "info",
 	}
 }
@@ -117,6 +124,11 @@ func LoadConfig() Options {
 	if v := os.Getenv("HUNCH_EPSILON"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
 			opts.Epsilon = f
+		}
+	}
+	if v := os.Getenv("HUNCH_MIN_COUNT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			opts.MinCount = n
 		}
 	}
 	if v := os.Getenv("HUNCH_MIN_CONFIDENCE"); v != "" {
