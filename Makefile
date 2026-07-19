@@ -17,9 +17,11 @@ test:
 test-race:
 	$(GO) test -race -count=1 ./...
 
-# Functional tests for the zsh integration's display-decision logic.
+# Functional tests for the zsh integration's display-decision logic and its
+# zle hook composition.
 test-zsh:
-	@which zsh >/dev/null 2>&1 && zsh integrations/zsh/hunch_test.zsh || echo "zsh not found, skipping"
+	@which zsh >/dev/null 2>&1 || { echo "zsh not found, skipping"; exit 0; }; \
+	zsh integrations/zsh/hunch_test.zsh && zsh integrations/zsh/hunch_hooks_test.zsh
 
 # End-to-end CLI/daemon/IPC smoke test.
 test-e2e:

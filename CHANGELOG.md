@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Fixed
+- zsh hooks are registered through `add-zle-hook-widget` instead of `zle -N`.
+  Binding a hook directly replaces whatever was bound before, so hunch could
+  silently disable another plugin's `zle-line-pre-redraw`, and a plugin loaded
+  after hunch could just as silently disable hunch's ghost text. `zle-line-finish`
+  was replaced outright with no chaining at all. Load order no longer matters
+  for correctness. zsh older than 5.3 keeps the previous single-predecessor
+  chaining.
 - Predictions now generalize. State keys compare by exact join, so a query for
   a shorter context never matched a longer recorded one, and a query without a
   directory never matched a recording made with one. The documented fallback

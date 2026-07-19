@@ -388,6 +388,8 @@ _hunch_record() {
 }
 
 _hunch_line_finish() {
+	_hunch_call_orig _hunch_orig_line_finish
+
 	# Remember the suggestion that was on screen when the user pressed Enter so
 	# _hunch_record can report it for acceptance detection. Capture before
 	# _hunch_clear_display resets it.
@@ -407,21 +409,58 @@ zle -N _hunch_apply_response
 
 typeset -g _HUNCH_HOOKS_INSTALLED=0
 
-if zle -l zle-line-init 2>/dev/null; then
-	zle -A zle-line-init _hunch_orig_line_init
+# zsh 5.3+ ships add-zle-hook-widget, which keeps a list of widgets per hook,
+# adopts any widget a plugin bound directly, and runs all of them. Binding a
+# hook with plain `zle -N` instead replaces whatever was there, so hunch would
+# silently disable another plugin's hook, and a plugin loaded after hunch would
+# just as silently disable hunch's ghost text. Prefer the hook list; fall back
+# to chaining a single predecessor only when the function is unavailable.
+# Load it only if nothing else has: `autoload +X` fails on an already-defined
+# function, and another plugin having loaded it first is the common case, so
+# keying off autoload's exit status would disable this exactly when other
+# plugins are present. Test for the function itself, which is also the only
+# proof it materialized.
+typeset -g _HUNCH_USING_ZLE_HOOK=0
+if (( ! ${+functions[add-zle-hook-widget]} )); then
+	autoload -Uz +X add-zle-hook-widget 2>/dev/null
+fi
+if (( ${+functions[add-zle-hook-widget]} )); then
+	_HUNCH_USING_ZLE_HOOK=1
 fi
 
-_hunch_on_line_init() {
-	if zle -l _hunch_orig_line_init 2>/dev/null; then
-		zle _hunch_orig_line_init
+# _hunch_install_hook binds widget to a zle hook, preserving what is already
+# bound. hook is the unprefixed name, e.g. line-init. In the fallback path
+# there is no widget list, so one predecessor is saved under origname and the
+# bound widget is responsible for calling it via _hunch_call_orig.
+_hunch_install_hook() {
+	local hook=$1 widget=$2 origname=$3
+	if (( _HUNCH_USING_ZLE_HOOK )); then
+		add-zle-hook-widget "$hook" "$widget"
+		return
 	fi
+	if zle -l "zle-$hook" 2>/dev/null; then
+		zle -A "zle-$hook" "$origname"
+	fi
+	zle -N "zle-$hook" "$widget"
+}
+
+# _hunch_call_orig runs the predecessor saved by the fallback path. Under the
+# hook list the runner has already called it, so this must do nothing or the
+# predecessor would fire twice.
+_hunch_call_orig() {
+	(( _HUNCH_USING_ZLE_HOOK )) && return
+	zle -l "$1" 2>/dev/null && zle "$1"
+}
+
+_hunch_on_line_init() {
+	_hunch_call_orig _hunch_orig_line_init
 
 	if (( ! _HUNCH_HOOKS_INSTALLED )); then
 		_HUNCH_HOOKS_INSTALLED=1
-		if zle -l zle-line-pre-redraw 2>/dev/null; then
-			zle -A zle-line-pre-redraw _hunch_orig_pre_redraw
-		fi
-		zle -N zle-line-pre-redraw _hunch_pre_redraw
+		# Bound on first line rather than at source time so hunch's redraw
+		# runs after any plugin sourced later. When two plugins both want
+		# POSTDISPLAY, the one that runs last is the one you see.
+		_hunch_install_hook line-pre-redraw _hunch_pre_redraw _hunch_orig_pre_redraw
 	fi
 
 	_HUNCH_SENT=$'\0'
@@ -429,13 +468,11 @@ _hunch_on_line_init() {
 	_hunch_update
 }
 
-zle -N zle-line-init _hunch_on_line_init
-zle -N zle-line-finish _hunch_line_finish
+_hunch_install_hook line-init _hunch_on_line_init _hunch_orig_line_init
+_hunch_install_hook line-finish _hunch_line_finish _hunch_orig_line_finish
 
 _hunch_pre_redraw() {
-	if zle -l _hunch_orig_pre_redraw 2>/dev/null; then
-		zle _hunch_orig_pre_redraw
-	fi
+	_hunch_call_orig _hunch_orig_pre_redraw
 	_hunch_update
 }
 

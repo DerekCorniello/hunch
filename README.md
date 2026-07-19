@@ -538,7 +538,14 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 
 ### Shell integration conflicts
 
-If you use `zsh-autosuggestions` or similar plugins, Hunch uses the `zle-line-pre-redraw` hook which should compose correctly. If you see issues, ensure Hunch is sourced **after** other plugins in your rc file.
+Hunch registers its zle hooks through `add-zle-hook-widget` (zsh 5.3+), which
+keeps a list of widgets per hook and runs all of them. It composes with
+`zsh-autosuggestions` and similar plugins regardless of load order, and adopts
+any widget a plugin bound directly. On zsh older than 5.3 it falls back to
+chaining a single previous widget.
+
+Sourcing hunch **after** other plugins is still recommended: when two plugins
+both want to draw ghost text, the one that runs last is the one you see.
 
 ### Windows-specific issues
 
