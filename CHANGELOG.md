@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.2 - 2026-07-18
 
 ### Added
 - `hunch eval <shell>` measures prediction accuracy by replaying your own
