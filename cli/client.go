@@ -195,6 +195,14 @@ func cmdClientPredict(args []string) error {
 }
 
 func cmdClientReset() error {
+	// Reset clears both the database and the daemon's in-memory graph, so it
+	// has to go through a running daemon. Start one rather than failing with
+	// a connection error: "stop the daemon, then reset" is the obvious way to
+	// wipe state, and init and import-history already start it on demand.
+	if err := ensureDaemonRunning(); err != nil {
+		return fmt.Errorf("daemon must be running to reset: %w", err)
+	}
+
 	req := ipc.Request{Op: "reset"}
 	raw, err := sendRequest(req)
 	if err != nil {

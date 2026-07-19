@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Fixed
+- `hunch reset` starts the daemon instead of failing with a connection error.
+  It clears the in-memory graph as well as the database, so it needs a daemon,
+  but stopping the daemon first is the obvious way to wipe state and `init` and
+  `import-history` already start one on demand.
 - Importing history no longer inflates counts. `Merge` added seed counts to
   existing ones, but a seed states how many times a transition was observed
   rather than supplying that many new observations. A shell history file
