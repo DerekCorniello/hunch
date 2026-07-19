@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -20,8 +24,15 @@ var (
 	latestAssetURL   = "https://github.com/DerekCorniello/hunch/releases/latest/download/"
 )
 
-// downloadTimeout covers fetching a release binary, which is roughly 16 MB.
-const downloadTimeout = 5 * time.Minute
+const (
+	// downloadTimeout covers fetching a release binary, roughly 16 MB.
+	downloadTimeout = 5 * time.Minute
+	// checksumFile is the digest manifest published alongside the binaries.
+	checksumFile = "SHA256SUMS"
+	// sha256HexLen is the length of a SHA-256 digest in hex.
+	sha256HexLen = 64
+	releasesPage = "https://github.com/DerekCorniello/hunch/releases/latest"
+)
 
 func cmdUpdate() error {
 	fmt.Println("hunch update")
@@ -49,12 +60,23 @@ func cmdUpdate() error {
 		return err
 	}
 
+	// Fetch the expected digest before the binary, so a release without
+	// checksums fails before anything is written to disk.
+	wantSum, err := fetchChecksum(asset)
+	if err != nil {
+		return fmt.Errorf("verify %s: %w", asset, err)
+	}
+
 	fmt.Printf("\nDownloading %s...\n", asset)
 	tmp, err := downloadAsset(latestAssetURL+asset, filepath.Dir(exe))
 	if err != nil {
 		return withPermissionHint(fmt.Errorf("download %s: %w", asset, err), exe)
 	}
 	defer os.Remove(tmp) // no-op once the rename below succeeds
+
+	if err := verifyChecksum(tmp, wantSum); err != nil {
+		return fmt.Errorf("verify %s: %w", asset, err)
+	}
 
 	if err := replaceExecutable(tmp, exe); err != nil {
 		return withPermissionHint(fmt.Errorf("replace %s: %w", exe, err), exe)
@@ -69,13 +91,69 @@ func cmdUpdate() error {
 	return nil
 }
 
+// fetchChecksum returns the expected SHA-256 digest for asset, read from the
+// release's SHA256SUMS file.
+//
+// This fails closed. Replacing the running executable with an unverified
+// download is the one operation where a silent fallback would be indefensible,
+// so a missing or unparseable checksum file aborts the update rather than
+// proceeding on HTTPS alone.
+func fetchChecksum(asset string) (string, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(latestAssetURL + checksumFile)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s is not published for this release (GitHub returned %d); download the binary manually from %s", checksumFile, resp.StatusCode, releasesPage)
+	}
+
+	// Each line is "<hex digest>  <asset name>", as written by sha256sum.
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		digest, name, found := strings.Cut(strings.TrimSpace(sc.Text()), "  ")
+		if found && name == asset {
+			if len(digest) != sha256HexLen {
+				return "", fmt.Errorf("malformed digest for %s in %s", asset, checksumFile)
+			}
+			return digest, nil
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("%s has no entry for %s", checksumFile, asset)
+}
+
+// verifyChecksum reports whether the file at path hashes to want.
+func verifyChecksum(path, want string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s. The download may be corrupt or tampered with; it has not been installed", want, got)
+	}
+	return nil
+}
+
 // withPermissionHint annotates a permission failure with the reason it is
 // usually hit: hunch installed into a directory the user cannot write.
 func withPermissionHint(err error, exe string) error {
 	if !errors.Is(err, fs.ErrPermission) {
 		return err
 	}
-	return fmt.Errorf("%w\n\n%s is not writable by the current user. Re-run with elevated privileges, or download the new binary manually from %s", err, filepath.Dir(exe), "https://github.com/DerekCorniello/hunch/releases/latest")
+	return fmt.Errorf("%w\n\n%s is not writable by the current user. Re-run with elevated privileges, or download the new binary manually from %s", err, filepath.Dir(exe), releasesPage)
 }
 
 // releasePlatforms mirrors the build matrix in .github/workflows/release.yml.

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Releases now publish a `SHA256SUMS` manifest, and `hunch update` verifies the
+  downloaded binary against it before installing. Verification fails closed: a
+  missing manifest or mismatched digest aborts the update.
+- Tests for the raw-example store, doctor's diagnostics, and the checksum path.
+  Coverage: cli 61% to 67%, daemon 76% to 80%, total 72% to 75%.
+
+### Changed
+- Split `daemon.go` (957 lines, 30 functions on one struct) into `daemon.go`
+  (lifecycle, 409 lines), `handlers.go` (IPC dispatch and handlers), and
+  `rawstore.go` (the template-to-command mapping, now an encapsulated type).
+  No behavior change.
+- `handlePredict`'s four-level fallback is now `predictWithFallback`; the
+  stats, config, and normalize handlers share one `respondJSON` helper.
+- Failed response writes are logged instead of discarded via `_ =`.
+- `cmdDoctor` separates diagnosis from rendering, so check logic is testable
+  and output is column-aligned.
+
 ## v0.1.1 - 2026-07-18
 
 ### Fixed

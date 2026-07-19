@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"net/http"
@@ -244,5 +246,124 @@ func TestCurrentExecutableResolves(t *testing.T) {
 	}
 	if _, err := os.Stat(exe); err != nil {
 		t.Errorf("resolved path does not exist: %v", err)
+	}
+}
+
+func TestVerifyChecksumAcceptsMatchingDigest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "payload")
+	if err := os.WriteFile(path, []byte("hunch binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	sum := sha256.Sum256([]byte("hunch binary"))
+	if err := verifyChecksum(path, hex.EncodeToString(sum[:])); err != nil {
+		t.Errorf("verifyChecksum rejected a matching digest: %v", err)
+	}
+}
+
+func TestVerifyChecksumIsCaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "payload")
+	if err := os.WriteFile(path, []byte("hunch binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	sum := sha256.Sum256([]byte("hunch binary"))
+	upper := strings.ToUpper(hex.EncodeToString(sum[:]))
+	if err := verifyChecksum(path, upper); err != nil {
+		t.Errorf("verifyChecksum rejected an uppercase digest: %v", err)
+	}
+}
+
+// A tampered or truncated download must never reach replaceExecutable.
+func TestVerifyChecksumRejectsMismatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "payload")
+	if err := os.WriteFile(path, []byte("tampered"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	sum := sha256.Sum256([]byte("original"))
+	err := verifyChecksum(path, hex.EncodeToString(sum[:]))
+	if err == nil {
+		t.Fatal("expected an error for a mismatched digest")
+	}
+	if !strings.Contains(err.Error(), "not been installed") {
+		t.Errorf("error should say the binary was not installed, got %q", err)
+	}
+}
+
+func TestFetchChecksumFindsAssetLine(t *testing.T) {
+	want := strings.Repeat("a", sha256HexLen)
+	body := strings.Repeat("b", sha256HexLen) + "  hunch-darwin-arm64\n" +
+		want + "  hunch-linux-amd64\n" +
+		strings.Repeat("c", sha256HexLen) + "  hunch-windows-amd64.exe\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, checksumFile) {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	t.Cleanup(func(orig string) func() { return func() { latestAssetURL = orig } }(latestAssetURL))
+	latestAssetURL = srv.URL + "/"
+
+	got, err := fetchChecksum("hunch-linux-amd64")
+	if err != nil {
+		t.Fatalf("fetchChecksum: %v", err)
+	}
+	if got != want {
+		t.Errorf("digest = %q, want %q", got, want)
+	}
+}
+
+// Failing closed is the point: without a checksum the update must abort
+// rather than install an unverified binary.
+func TestFetchChecksumFailsClosedWhenManifestMissing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	t.Cleanup(func(orig string) func() { return func() { latestAssetURL = orig } }(latestAssetURL))
+	latestAssetURL = srv.URL + "/"
+
+	_, err := fetchChecksum("hunch-linux-amd64")
+	if err == nil {
+		t.Fatal("expected an error when SHA256SUMS is absent")
+	}
+	if !strings.Contains(err.Error(), "manually") {
+		t.Errorf("error should point at the manual download, got %q", err)
+	}
+}
+
+func TestFetchChecksumRejectsMissingEntryAndBadDigest(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "no entry for asset", body: strings.Repeat("a", sha256HexLen) + "  hunch-darwin-arm64\n"},
+		{name: "truncated digest", body: "abc123  hunch-linux-amd64\n"},
+		{name: "empty manifest", body: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			t.Cleanup(func(orig string) func() { return func() { latestAssetURL = orig } }(latestAssetURL))
+			latestAssetURL = srv.URL + "/"
+
+			if _, err := fetchChecksum("hunch-linux-amd64"); err == nil {
+				t.Error("expected an error")
+			}
+		})
 	}
 }

@@ -43,8 +43,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v5
+
+      # Each matrix job uploads into its own directory. Flatten them so the
+      # checksum file lists bare asset names, which is what `hunch update`
+      # looks up.
+      - name: Collect artifacts and checksum them
+        run: |
+          mkdir -p dist
+          find . -type f -name 'hunch-*' -exec cp {} dist/ \;
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
-          files: hunch-*/*
+          files: dist/*
           generate_release_notes: true

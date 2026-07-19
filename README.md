@@ -236,9 +236,13 @@ Remove hunch from your system. Stops the daemon, removes all data files (databas
 ### `hunch update`
 
 Check for and install updates. Queries GitHub for the latest release and, if a
-newer version exists, downloads the binary built for your platform and replaces
-the running executable in place. No Go toolchain is required. The daemon is
-restarted automatically afterwards.
+newer version exists, downloads the binary built for your platform, verifies it
+against the release's `SHA256SUMS`, and replaces the running executable in
+place. No Go toolchain is required. The daemon is restarted automatically
+afterwards.
+
+Verification fails closed: if the checksum file is missing or the digest does
+not match, the download is discarded and nothing is installed.
 
 The new binary is downloaded next to the current one and moved into place, so
 the directory holding `hunch` must be writable. If it is not (for example
