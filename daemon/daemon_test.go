@@ -99,7 +99,7 @@ func readJSON(t *testing.T, conn net.Conn, v interface{}) {
 }
 
 func TestDaemonRecordPredictRoundtrip(t *testing.T) {
-	_, _, socket := startDaemon(t, LoadConfig())
+	_, _, socket := startDaemon(t, testConfig())
 
 	conn := dial(t, socket)
 	writeJSON(t, conn, map[string]interface{}{
@@ -249,7 +249,7 @@ func TestDaemonAcceptanceBoostThroughDaemon(t *testing.T) {
 }
 
 func TestDaemonPersistence(t *testing.T) {
-	opts := LoadConfig()
+	opts := testConfig()
 	dbPath := filepath.Join(t.TempDir(), "hunch.db")
 	sockPath := testSockPath(t)
 	opts.DBPath = dbPath
@@ -311,7 +311,7 @@ func TestDaemonPersistence(t *testing.T) {
 }
 
 func TestDaemonReset(t *testing.T) {
-	_, _, socket := startDaemon(t, LoadConfig())
+	_, _, socket := startDaemon(t, testConfig())
 
 	conn := dial(t, socket)
 	writeJSON(t, conn, map[string]interface{}{
@@ -433,7 +433,7 @@ func TestDaemonExportEmpty(t *testing.T) {
 }
 
 func TestDaemonPredictFiltersByPrefix(t *testing.T) {
-	_, _, socket := startDaemon(t, LoadConfig())
+	_, _, socket := startDaemon(t, testConfig())
 
 	conn := dial(t, socket)
 	writeJSON(t, conn, map[string]interface{}{
@@ -619,7 +619,7 @@ func TestDaemonConcurrentRecords(t *testing.T) {
 // fresh one, restarts the daemon (startup decay runs), and verifies the stale
 // transition was pruned from the database while the fresh one survives.
 func TestDaemonDecayPrunesStaleOnStartup(t *testing.T) {
-	opts := LoadConfig()
+	opts := testConfig()
 	opts.DBPath = filepath.Join(t.TempDir(), "hunch.db")
 	opts.Socket = testSockPath(t)
 
@@ -1347,4 +1347,15 @@ func TestImportedSeedSurvivesRestart(t *testing.T) {
 			t.Errorf("count = %d, want 5 (the seed count was not preserved)", resp.Suggestions[0].Count)
 		}
 	})
+}
+
+// testConfig returns daemon options for tests that are not about the evidence
+// threshold. MinCount defaults to 2, so a test that records one observation to
+// exercise persistence, reset, prefix filtering, or decay would otherwise see
+// it filtered out for a reason unrelated to what it is checking. Tests that do
+// cover the threshold set MinCount explicitly.
+func testConfig() Options {
+	opts := LoadConfig()
+	opts.MinCount = 1
+	return opts
 }

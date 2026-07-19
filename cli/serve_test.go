@@ -48,8 +48,13 @@ func TestServeRoundtrip(t *testing.T) {
 	socket, stop := startTestDaemon(t)
 	defer stop()
 
-	if err := Run([]string{"client", "record", "--state", "", "--next", "git status"}); err != nil {
-		t.Fatalf("record: %v", err)
+	// Recorded twice: a single observation is below the default evidence
+	// threshold and would not be suggested, which has nothing to do with the
+	// serve protocol under test here.
+	for range 2 {
+		if err := Run([]string{"client", "record", "--state", "", "--next", "git status"}); err != nil {
+			t.Fatalf("record: %v", err)
+		}
 	}
 
 	// Two queries on one persistent loop: a matching prefix and a miss.
@@ -80,8 +85,10 @@ func TestServeEmptyPrefixUsesTopRaw(t *testing.T) {
 	socket, stop := startTestDaemon(t)
 	defer stop()
 
-	if err := Run([]string{"client", "record", "--state", ",cd PATH", "--next", "ls -la"}); err != nil {
-		t.Fatalf("record: %v", err)
+	for range 2 {
+		if err := Run([]string{"client", "record", "--state", ",cd PATH", "--next", "ls -la"}); err != nil {
+			t.Fatalf("record: %v", err)
+		}
 	}
 
 	in := encodeRequests(t, ipc.ServeRequest{Prefix: "", State: []string{"", "cd PATH"}})
