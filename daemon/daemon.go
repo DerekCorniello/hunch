@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -20,7 +19,6 @@ import (
 	"github.com/DerekCorniello/hunch/core/predict"
 	"github.com/DerekCorniello/hunch/core/redact"
 	"github.com/DerekCorniello/hunch/core/types"
-	"github.com/DerekCorniello/hunch/ipc"
 )
 
 const (
@@ -28,13 +26,6 @@ const (
 	flushInterval  = 5 * time.Second
 	decayInterval  = 24 * time.Hour
 )
-
-// rawEntry tracks the accumulated count and most recent observation time
-// for one (stateKey, template, raw) triple.
-type rawEntry struct {
-	count    int
-	lastSeen time.Time
-}
 
 type daemon struct {
 	opts     Options
@@ -45,10 +36,7 @@ type daemon struct {
 	parents  []string        // cached result of MergeParents
 	redactor *redact.Matcher // drops sensitive commands before recording
 
-	// rawMap: outerKey -> raw -> rawEntry
-	// outerKey = rawOuterKey(stateTemplates, template)
-	rawMap map[string]map[string]rawEntry
-	rawMu  sync.RWMutex
+	raws *rawStore
 
 	lock     Locker
 	listener net.Listener
@@ -63,19 +51,6 @@ type daemon struct {
 	pidPath  string
 }
 
-// rawOuterKey builds the map key for rawMap from a prior-command state slice
-// and the next-command template. Empty strings in state are ignored so that
-// `["", "git add PATH"]` and `["git add PATH"]` produce the same key.
-func rawOuterKey(state []string, template string) string {
-	var nonEmpty []string
-	for _, s := range state {
-		if s != "" {
-			nonEmpty = append(nonEmpty, s)
-		}
-	}
-	return strings.Join(nonEmpty, "\x00") + "\x00\x00" + template
-}
-
 // Run starts the daemon and blocks until ctx is cancelled or a fatal
 // error occurs. On shutdown the graph is flushed to SQLite before returning.
 func Run(ctx context.Context, opts Options) error {
@@ -85,7 +60,7 @@ func Run(ctx context.Context, opts Options) error {
 		flushCh:  make(chan struct{}, 1),
 		parents:  normalize.MergeParents(opts.ExtraParents),
 		redactor: redact.New(opts.Ignore),
-		rawMap:   make(map[string]map[string]rawEntry),
+		raws:     newRawStore(opts.HalfLife()),
 	}
 	d.g.Store(graph.New(2))
 
@@ -160,15 +135,7 @@ func (d *daemon) start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load raw examples: %w", err)
 	}
-	for _, rec := range rawRecords {
-		outerKey := rawOuterKey(rec.State, rec.Template)
-		inner, ok := d.rawMap[outerKey]
-		if !ok {
-			inner = make(map[string]rawEntry)
-			d.rawMap[outerKey] = inner
-		}
-		inner[rec.Raw] = rawEntry{count: rec.Count, lastSeen: rec.LastSeen}
-	}
+	d.raws.load(rawRecords)
 
 	// Seed import on first run.
 	if d.opts.SeedPath != "" && len(transitions) == 0 {
@@ -279,378 +246,6 @@ func (d *daemon) acceptLoop(ctx context.Context) {
 	}
 }
 
-func (d *daemon) handleConn(conn net.Conn) {
-	defer func() {
-		if r := recover(); r != nil {
-			d.log.Error("panic handling connection", "recover", r)
-		}
-		conn.Close()
-	}()
-
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
-
-	req, err := parseRequest(conn)
-	if err != nil {
-		_ = writeError(conn, "bad request")
-		return
-	}
-
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
-
-	switch req.Op {
-	case "record":
-		d.log.Debug("record", "state", req.State, "next", req.Next)
-		d.handleRecord(conn, req)
-	case "predict":
-		d.log.Debug("predict", "state", req.State, "prefix", req.Prefix)
-		d.handlePredict(conn, req)
-	case "reset":
-		d.handleReset(conn)
-	case "export":
-		d.handleExport(conn)
-	case "stats":
-		d.handleStats(conn)
-	case "normalize":
-		d.handleNormalize(conn, req)
-	case "config":
-		d.handleConfig(conn)
-	case "import":
-		d.handleImport(conn, req)
-	case "record_raws":
-		d.handleRecordRaws(conn, req)
-	default:
-		_ = writeError(conn, fmt.Sprintf("unknown op: %s", req.Op))
-	}
-}
-
-func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
-	at, err := parseAt(req.At)
-	if err != nil {
-		_ = writeError(conn, fmt.Sprintf("bad at: %s", err))
-		return
-	}
-	if at.IsZero() {
-		at = time.Now()
-	}
-
-	// Drop commands that look like they carry secrets: neither the
-	// transition nor the raw example is recorded, so nothing sensitive is
-	// ever persisted or suggested back. Reported as OK so the caller is
-	// unaware which commands were skipped.
-	if d.redactor.IsSensitive(req.Next) {
-		d.log.Debug("skipping sensitive command")
-		_ = writeOK(conn)
-		return
-	}
-
-	// Normalize state and next before recording.
-	normalizedState := make([]string, 0, len(req.State)+1)
-	if req.CWD != "" {
-		normalizedState = append(normalizedState, filepath.Clean(req.CWD))
-	}
-	for _, raw := range req.State {
-		normalizedState = append(normalizedState, normalize.Normalize(raw, d.parents))
-	}
-	normalizedNext := normalize.Normalize(req.Next, d.parents)
-
-	// Acceptance: the executed command confirms a suggestion when its
-	// template matches the template hunch last showed for this state, even
-	// if the user edited a value (normalization collapses STR/PATH/etc.).
-	accepted := req.Suggested != "" && normalize.Normalize(req.Suggested, d.parents) == normalizedNext
-
-	d.g.Load().RecordObs(graph.Observation{
-		State:        normalizedState,
-		Next:         normalizedNext,
-		At:           at,
-		CWD:          req.CWD,
-		NextOutcome:  graph.Outcome(req.Outcome),
-		PriorOutcome: graph.Outcome(req.PriorOutcome),
-		Accepted:     accepted,
-	})
-
-	// Store raw example conditioned on the normalized state, so lookup
-	// during prediction can prefer raws seen in the same workflow context.
-	d.rawMu.Lock()
-	outerKey := rawOuterKey(normalizedState, normalizedNext)
-	inner, ok := d.rawMap[outerKey]
-	if !ok {
-		inner = make(map[string]rawEntry)
-		d.rawMap[outerKey] = inner
-	}
-	prev := inner[req.Next]
-	prev.count++
-	prev.lastSeen = at
-	inner[req.Next] = prev
-	d.rawMu.Unlock()
-
-	if d.dirty.Add(1) >= flushThreshold {
-		select {
-		case d.flushCh <- struct{}{}:
-		default:
-		}
-	}
-
-	_ = writeOK(conn)
-}
-
-func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
-	now := time.Now()
-	d.rawMu.Lock()
-	for _, ex := range req.RawExamples {
-		if ex.Template == "" || ex.Raw == "" {
-			continue
-		}
-		var lastSeen time.Time
-		if ex.LastSeen > 0 {
-			lastSeen = time.Unix(ex.LastSeen, 0)
-		} else {
-			lastSeen = now
-		}
-		outerKey := rawOuterKey(ex.State, ex.Template)
-		inner, ok := d.rawMap[outerKey]
-		if !ok {
-			inner = make(map[string]rawEntry)
-			d.rawMap[outerKey] = inner
-		}
-		prev := inner[ex.Raw]
-		prev.count += ex.Count
-		if lastSeen.After(prev.lastSeen) {
-			prev.lastSeen = lastSeen
-		}
-		inner[ex.Raw] = prev
-	}
-	d.rawMu.Unlock()
-
-	_ = writeOK(conn)
-}
-
-func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
-	at, err := parseAt(req.At)
-	if err != nil {
-		_ = writeError(conn, fmt.Sprintf("bad at: %s", err))
-		return
-	}
-	if at.IsZero() {
-		at = time.Now()
-	}
-
-	prev := make([]types.Command, len(req.State))
-	for i, raw := range req.State {
-		prev[i] = types.Command{Template: normalize.Normalize(raw, d.parents)}
-	}
-
-	prior := types.Outcome(req.PriorOutcome)
-
-	// Level 1: CWD-augmented state key - transitions learned in this
-	// specific directory from live sessions.
-	cwd := req.CWD
-	if cwd != "" {
-		cwd = filepath.Clean(cwd)
-	}
-	st := types.State{
-		Previous:     prev,
-		CWD:          cwd,
-		PriorOutcome: prior,
-	}
-	suggestions := d.pred.Load().Predict(st, at, 0)
-
-	// Level 2: walk up parent directories so that transitions learned
-	// in ~/project still apply when the shell is in ~/project/src.
-	if req.Prefix == "" && len(suggestions) == 0 && cwd != "" {
-		for parent := filepath.Dir(cwd); parent != cwd && parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
-			stParent := types.State{
-				Previous:     prev,
-				CWD:          parent,
-				PriorOutcome: prior,
-			}
-			suggestions = d.pred.Load().Predict(stParent, at, 0)
-			if len(suggestions) > 0 {
-				break
-			}
-		}
-	}
-
-	if req.Prefix == "" && len(suggestions) == 0 {
-		// Level 3: fall back to no-CWD state key - matches imported
-		// shell history and any data recorded before CWD tracking.
-		stNoCWD := types.State{
-			Previous:     prev,
-			CWD:          "",
-			PriorOutcome: prior,
-		}
-		suggestions = d.pred.Load().Predict(stNoCWD, at, 0)
-	}
-	if req.Prefix == "" && len(suggestions) == 0 {
-		// Level 4: progressively shorter history windows.
-		for trim := 1; trim <= len(prev) && len(suggestions) == 0; trim++ {
-			fallback := types.State{
-				Previous:     prev[trim:],
-				CWD:          "",
-				PriorOutcome: prior,
-			}
-			suggestions = d.pred.Load().Predict(fallback, at, 0)
-		}
-	}
-
-	if req.Prefix != "" {
-		suggestions = filterByPrefix(suggestions, req.Prefix, d.parents)
-	}
-
-	// Suppress "cd" suggestions that target the current directory.
-	suggestions = suppressCdToCurrent(suggestions, cwd)
-
-	limit := req.Limit
-	if limit < 0 {
-		limit = 0
-	}
-	if limit > 0 && len(suggestions) > limit {
-		suggestions = suggestions[:limit]
-	}
-
-	// Extract variable-value argument tokens from the recent raw prior
-	// commands. These are used below to boost raw suggestions that reuse
-	// the same file names, script names, etc. from the immediately preceding
-	// context (option 2).
-	argTokens := collectArgTokens(req.State, d.parents)
-
-	// Build the clean (non-empty) state template list for conditioned lookup.
-	stateTemplates := make([]string, 0, len(prev))
-	for _, cmd := range prev {
-		if cmd.Template != "" {
-			stateTemplates = append(stateTemplates, cmd.Template)
-		}
-	}
-
-	// Hydrate each suggestion with the best matching raw command.
-	// Lookup is state-conditioned (option 1), scored by recency (option 3),
-	// and boosted by argument token overlap with recent commands (option 2).
-	d.rawMu.RLock()
-	for i, s := range suggestions {
-		if raw := d.findBestRaw(stateTemplates, s.Template, req.Prefix, argTokens, at); raw != "" {
-			suggestions[i].Raw = raw
-		}
-	}
-	d.rawMu.RUnlock()
-
-	_ = writeSuggestions(conn, suggestions)
-}
-
-// collectArgTokens extracts unquoted variable-value tokens (STR, PATH, HASH,
-// NUM, REPO) from the most recent raw prior commands. These represent file
-// names, script names, etc. that the user may want to reuse in the next command.
-// Tokens shorter than 3 characters are skipped to avoid spurious matches.
-func collectArgTokens(rawCmds []string, parents []string) []string {
-	if len(rawCmds) == 0 {
-		return nil
-	}
-	start := len(rawCmds) - 2
-	if start < 0 {
-		start = 0
-	}
-	var tokens []string
-	seen := make(map[string]struct{})
-	for _, raw := range rawCmds[start:] {
-		for _, tok := range normalize.ExtractArgTokens(raw, parents) {
-			if len(tok) < 3 {
-				continue
-			}
-			if _, ok := seen[tok]; !ok {
-				seen[tok] = struct{}{}
-				tokens = append(tokens, tok)
-			}
-		}
-	}
-	return tokens
-}
-
-// findBestRaw returns the highest-scored raw command for the given template,
-// trying progressively shorter state windows until a match is found.
-// Must be called with rawMu held for reading.
-func (d *daemon) findBestRaw(stateTemplates []string, template, prefix string, argTokens []string, at time.Time) string {
-	for trim := 0; trim <= len(stateTemplates); trim++ {
-		outerKey := rawOuterKey(stateTemplates[trim:], template)
-		inner, ok := d.rawMap[outerKey]
-		if !ok || len(inner) == 0 {
-			continue
-		}
-		if raw := d.selectBestRaw(inner, prefix, argTokens, at); raw != "" {
-			return raw
-		}
-	}
-	return ""
-}
-
-// selectBestRaw picks the highest-scored raw from a bucket. When prefix is
-// non-empty, it prefers raws that literally start with it; if none match the
-// prefix, it falls back to the overall best raw. Must be called with rawMu
-// held for reading.
-func (d *daemon) selectBestRaw(inner map[string]rawEntry, prefix string, argTokens []string, at time.Time) string {
-	bestRaw, bestScore := "", -1.0
-	bestPrefixRaw, bestPrefixScore := "", -1.0
-
-	for raw, entry := range inner {
-		score := d.scoreRaw(entry, raw, argTokens, at)
-		if score > bestScore {
-			bestScore = score
-			bestRaw = raw
-		}
-		if prefix != "" && strings.HasPrefix(raw, prefix) && score > bestPrefixScore {
-			bestPrefixScore = score
-			bestPrefixRaw = raw
-		}
-	}
-
-	if prefix != "" && bestPrefixRaw != "" {
-		return bestPrefixRaw
-	}
-	return bestRaw
-}
-
-// scoreRaw computes a score for a raw command candidate. The score combines
-// observation count with an exponential recency decay (matching the graph's
-// half-life) and an additive boost when the raw contains a token that appeared
-// as an argument in a recent prior command.
-func (d *daemon) scoreRaw(entry rawEntry, raw string, argTokens []string, at time.Time) float64 {
-	halfLife := d.opts.HalfLife()
-	var recency float64
-	if entry.lastSeen.IsZero() {
-		recency = 0.1 // small floor for migrated entries without timestamps
-	} else {
-		elapsed := at.Sub(entry.lastSeen)
-		recency = math.Exp(-math.Ln2 * float64(elapsed) / float64(halfLife))
-	}
-	score := float64(entry.count) * recency
-
-	// Token overlap boost: each argument token from a recent prior command
-	// that appears literally in this raw adds a fixed bonus large enough to
-	// override moderate frequency differences, reflecting the high likelihood
-	// the user wants to reuse the same file/script name.
-	const tokenBoost = 100.0
-	for _, tok := range argTokens {
-		if strings.Contains(raw, tok) {
-			score += tokenBoost
-		}
-	}
-	return score
-}
-
-func (d *daemon) handleReset(conn net.Conn) {
-	d.flushMu.Lock()
-	newG := graph.New(2)
-	d.g.Store(newG)
-	d.pred.Store(predict.New(newG, d.opts.HalfLife(), d.opts.Alpha, d.opts.Beta, d.opts.Gamma, d.opts.Delta, d.opts.Epsilon))
-	if err := d.st.clear(); err != nil {
-		d.log.Error("clear store", "error", err)
-	}
-	d.rawMu.Lock()
-	d.rawMap = make(map[string]map[string]rawEntry)
-	d.rawMu.Unlock()
-	d.dirty.Store(0)
-	d.flushMu.Unlock()
-
-	_ = writeOK(conn)
-}
-
 // flushDB persists the current graph and raw examples to the database.
 // flushMu must be held by the caller. Returns true on success.
 func (d *daemon) flushDB() bool {
@@ -661,7 +256,7 @@ func (d *daemon) flushDB() bool {
 		}
 	}
 
-	rawSnapshot := d.snapshotRawMap()
+	rawSnapshot := d.raws.snapshot()
 	if len(rawSnapshot) > 0 {
 		if err := d.st.saveRawExamples(rawSnapshot); err != nil {
 			d.log.Error("flush raw examples failed", "error", err)
@@ -669,133 +264,6 @@ func (d *daemon) flushDB() bool {
 	}
 
 	return true
-}
-
-// snapshotRawMap returns a flat slice of rawRecords taken under the read
-// lock, safe to iterate without further synchronization.
-func (d *daemon) snapshotRawMap() []rawRecord {
-	d.rawMu.RLock()
-	defer d.rawMu.RUnlock()
-
-	var records []rawRecord
-	for outerKey, inner := range d.rawMap {
-		// Decompose outerKey into stateKey and template. The separator
-		// "\x00\x00" is safe because normalized templates only contain
-		// alphanumeric tokens and spaces.
-		parts := strings.SplitN(outerKey, "\x00\x00", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		stateKey, template := parts[0], parts[1]
-		var state []string
-		if stateKey != "" {
-			state = strings.Split(stateKey, "\x00")
-		}
-		for raw, entry := range inner {
-			records = append(records, rawRecord{
-				State:    state,
-				Template: template,
-				Raw:      raw,
-				Count:    entry.count,
-				LastSeen: entry.lastSeen,
-			})
-		}
-	}
-	return records
-}
-
-func (d *daemon) handleExport(conn net.Conn) {
-	all := d.g.Load().All()
-	_ = writeTransitions(conn, all)
-}
-
-func (d *daemon) handleStats(conn net.Conn) {
-	size := d.g.Load().Size()
-	resp := ipc.StatsResponse{
-		Size:     size,
-		HalfLife: d.opts.HalfLife().String(),
-		Alpha:    d.opts.Alpha,
-		DBPath:   d.opts.DBPath,
-	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		_ = writeError(conn, "marshal stats")
-		return
-	}
-	fmt.Fprint(conn, string(data)+"\n")
-}
-
-func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
-	raw := req.Next
-	if raw == "" && len(req.State) > 0 {
-		raw = req.State[len(req.State)-1]
-	}
-	if raw == "" {
-		_ = writeError(conn, "no input to normalize")
-		return
-	}
-	template := normalize.Normalize(raw, d.parents)
-	resp := ipc.NormalizeResponse{
-		Raw:      raw,
-		Template: template,
-	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		_ = writeError(conn, "marshal normalize")
-		return
-	}
-	fmt.Fprint(conn, string(data)+"\n")
-}
-
-func (d *daemon) handleConfig(conn net.Conn) {
-	resp := ipc.ConfigResponse{
-		AcceptKeys:   d.opts.AcceptKeys,
-		ExtraParents: d.opts.ExtraParents,
-		HalfLife:     d.opts.HalfLife().String(),
-		Alpha:        d.opts.Alpha,
-	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		_ = writeError(conn, "marshal config")
-		return
-	}
-	fmt.Fprint(conn, string(data)+"\n")
-}
-
-func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
-	if req.Next == "" {
-		_ = writeError(conn, "import path required")
-		return
-	}
-	p, err := filepath.Abs(req.Next)
-	if err != nil {
-		_ = writeError(conn, fmt.Sprintf("bad path: %v", err))
-		return
-	}
-	// Use Lstat (not Stat) so we can detect symlinks before following them.
-	fi, err := os.Lstat(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			_ = writeError(conn, "file not found")
-		} else {
-			_ = writeError(conn, fmt.Sprintf("stat: %v", err))
-		}
-		return
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		_ = writeError(conn, "symlinks not allowed")
-		return
-	}
-	if !fi.Mode().IsRegular() {
-		_ = writeError(conn, "not a regular file")
-		return
-	}
-	if err := d.importSeed(p); err != nil {
-		_ = writeError(conn, fmt.Sprintf("import failed: %v", err))
-		return
-	}
-	d.pred.Store(predict.New(d.g.Load(), d.opts.HalfLife(), d.opts.Alpha, d.opts.Beta, d.opts.Gamma, d.opts.Delta, d.opts.Epsilon))
-	_ = writeOK(conn)
 }
 
 // flushLoop periodically flushes the in-memory graph to SQLite.
@@ -848,23 +316,7 @@ func (d *daemon) decay() {
 		return
 	}
 
-	if len(res.Orphaned) > 0 {
-		// Build a set for O(1) lookup during the rawMap scan.
-		orphanedSet := make(map[string]struct{}, len(res.Orphaned))
-		for _, tmpl := range res.Orphaned {
-			orphanedSet[tmpl] = struct{}{}
-		}
-		d.rawMu.Lock()
-		for outerKey := range d.rawMap {
-			parts := strings.SplitN(outerKey, "\x00\x00", 2)
-			if len(parts) == 2 {
-				if _, orphaned := orphanedSet[parts[1]]; orphaned {
-					delete(d.rawMap, outerKey)
-				}
-			}
-		}
-		d.rawMu.Unlock()
-	}
+	d.raws.dropOrphaned(res.Orphaned)
 
 	if err := d.st.prune(res.Pruned, res.Orphaned); err != nil {
 		d.log.Error("decay prune failed", "error", err)
