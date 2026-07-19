@@ -152,19 +152,28 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	// if the user edited a value (normalization collapses STR/PATH/etc.).
 	accepted := req.Suggested != "" && normalize.Normalize(req.Suggested, d.parents) == normalizedNext
 
-	d.g.Load().RecordObs(graph.Observation{
-		State:        normalizedState,
-		Next:         normalizedNext,
-		At:           at,
-		CWD:          req.CWD,
-		NextOutcome:  graph.Outcome(req.Outcome),
-		PriorOutcome: graph.Outcome(req.PriorOutcome),
-		Accepted:     accepted,
-	})
+	states := backoffStates(normalizedState, req.CWD != "")
 
-	// Store the raw example conditioned on the normalized state, so lookup
-	// during prediction can prefer raws seen in the same workflow context.
-	d.raws.record(normalizedState, normalizedNext, req.Next, at)
+	g := d.g.Load()
+	for _, state := range states {
+		g.RecordObs(graph.Observation{
+			State:        state,
+			Next:         normalizedNext,
+			At:           at,
+			CWD:          req.CWD,
+			NextOutcome:  graph.Outcome(req.Outcome),
+			PriorOutcome: graph.Outcome(req.PriorOutcome),
+			Accepted:     accepted,
+		})
+	}
+
+	// Store the raw example under the same keys as the graph. A suggestion
+	// reached through a generalization must be able to find a concrete
+	// command, or it would be rendered as a bare template like
+	// "git commit FLAG STR", which is not runnable.
+	for _, state := range states {
+		d.raws.record(state, normalizedNext, req.Next, at)
+	}
 
 	if d.dirty.Add(1) >= flushThreshold {
 		select {
@@ -174,6 +183,57 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 	}
 
 	d.respondOK(conn)
+}
+
+// backoffStates expands one observation into the state keys it should be
+// recorded under: the exact context, plus progressively more general ones.
+//
+// Without this the prediction fallbacks cannot fire. State keys are compared
+// by exact join, so a query for ["git status"] never matches a recording of
+// ["", "git status"], and a query with no directory never matches a recording
+// made with one. Recording the generalizations is what lets a workflow learned
+// in one directory, or after a longer run of commands, still apply elsewhere.
+//
+// The fully general (empty) key is deliberately omitted: Merge rejects
+// transitions with empty state, so persisting one would produce rows that fail
+// to load on restart. It would only ever predict the single most frequent
+// command anyway, which is the baseline rather than a useful suggestion.
+func backoffStates(state []string, hasCWD bool) [][]string {
+	states := [][]string{state}
+
+	// With a directory prefix, the same context without it is a distinct and
+	// more general key that would otherwise never be recorded.
+	templates := state
+	if hasCWD && len(state) > 0 {
+		templates = state[1:]
+		states = appendIfInformative(states, templates)
+	}
+
+	// Drop the oldest command for a shorter-history key.
+	if len(templates) > 1 {
+		states = appendIfInformative(states, templates[1:])
+	}
+	return states
+}
+
+// appendIfInformative adds a generalization only when it carries context. At
+// the start of a session the history is empty padding, and a key of nothing
+// but empty strings would collapse every such observation into one bucket
+// that predicts the user's most frequent command regardless of context.
+func appendIfInformative(states [][]string, candidate []string) [][]string {
+	if len(candidate) == 0 || allEmpty(candidate) {
+		return states
+	}
+	return append(states, candidate)
+}
+
+func allEmpty(state []string) bool {
+	for _, s := range state {
+		if s != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *daemon) handleRecordRaws(conn net.Conn, req ipc.Request) {
@@ -225,13 +285,19 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 }
 
 // predictWithFallback queries the predictor through progressively more general
-// state keys, stopping at the first level that yields anything.
+// state keys, stopping at the first level that yields a usable answer.
 //
 // The levels trade specificity for coverage: an exact directory match is the
-// strongest signal, while a trimmed history with no directory is the weakest
-// but almost always has data. Only an unfiltered query walks the ladder; when
-// the caller supplied a prefix, a broadened match would suggest commands
-// unrelated to what they are typing, so level 1 stands alone.
+// strongest signal, a trimmed history with no directory the weakest. Only the
+// exact match is trusted unconditionally. Every broader level must clear
+// MinConfidence, because a generalized context nearly always has *some*
+// candidate, and offering it regardless turns a fallback into a guess. Ghost
+// text that is usually wrong trains people to ignore it, which costs more than
+// staying quiet.
+//
+// Only an unfiltered query walks the ladder; when the caller supplied a
+// prefix, a broadened match would suggest commands unrelated to what they are
+// typing, so level 1 stands alone.
 func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior types.Outcome, prefix string, at time.Time) []types.Suggestion {
 	query := func(previous []types.Command, dir string) []types.Suggestion {
 		return d.pred.Load().Predict(types.State{
@@ -239,6 +305,10 @@ func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior typ
 			CWD:          dir,
 			PriorOutcome: prior,
 		}, at, 0)
+	}
+	// confident reports whether a generalized match is strong enough to show.
+	confident := func(s []types.Suggestion) bool {
+		return len(s) > 0 && s[0].Score >= d.opts.MinConfidence
 	}
 
 	// Level 1: this exact directory, as learned from live sessions.
@@ -251,25 +321,25 @@ func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior typ
 	// still applies in ~/project/src.
 	if cwd != "" {
 		for parent := filepath.Dir(cwd); parent != cwd && parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
-			if suggestions = query(prev, parent); len(suggestions) > 0 {
-				return suggestions
+			if s := query(prev, parent); confident(s) {
+				return s
 			}
 		}
 	}
 
 	// Level 3: no directory at all, which is how imported shell history and
 	// anything recorded before CWD tracking is keyed.
-	if suggestions = query(prev, ""); len(suggestions) > 0 {
-		return suggestions
+	if s := query(prev, ""); confident(s) {
+		return s
 	}
 
 	// Level 4: progressively shorter history windows.
 	for trim := 1; trim <= len(prev); trim++ {
-		if suggestions = query(prev[trim:], ""); len(suggestions) > 0 {
-			return suggestions
+		if s := query(prev[trim:], ""); confident(s) {
+			return s
 		}
 	}
-	return suggestions
+	return nil
 }
 
 func (d *daemon) handleReset(conn net.Conn) {

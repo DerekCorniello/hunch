@@ -299,6 +299,7 @@ hunch predict --state "git add,git commit" --limit 5
 | `HUNCH_GAMMA` | Failure-rate suppression strength | `0.5` |
 | `HUNCH_DELTA` | Prior-outcome boost strength | `0.5` |
 | `HUNCH_EPSILON` | Confirmed-acceptance boost strength | `0.5` |
+| `HUNCH_MIN_CONFIDENCE` | Score a generalized match must reach to be shown | `0.20` |
 | `HUNCH_EXTRA_PARENTS` | Extra parent commands (comma-separated) | (none) |
 | `HUNCH_IGNORE` | Extra regexes for sensitive commands to never record (comma-separated) | (none) |
 | `HUNCH_LOG_LEVEL` | Log level | `info` |
@@ -306,7 +307,14 @@ hunch predict --state "git add,git commit" --limit 5
 
 Each scoring strength (`beta`/`gamma`/`delta`/`epsilon`) is a soft,
 multiplicative adjustment that is the identity when its signal is absent; set
-any to `0` to disable that signal. Sensitive commands matching a built-in or
+any to `0` to disable that signal.
+
+`min_confidence` controls how readily hunch generalizes. An exact-context match
+is always shown. When there is no exact match, hunch widens the context (drop
+the directory, then drop the oldest command) and shows the result only if it
+scores at least this high. Lower it to see suggestions more often at the cost
+of more wrong ones; set it to `1` to suppress generalized suggestions entirely
+and only ever show exact-context matches. Sensitive commands matching a built-in or
 `HUNCH_IGNORE` pattern are never recorded (neither the transition nor the raw
 command), so secrets are not persisted or suggested back.
 
@@ -329,6 +337,7 @@ beta = 0.75    # CWD-affinity boost
 gamma = 0.5    # failure-rate suppression
 delta = 0.5    # prior-outcome boost
 epsilon = 0.5  # confirmed-acceptance boost
+min_confidence = 0.20  # bar for suggestions from a generalized context
 accept_keys = ["right", "end"]
 extra_parents = ["mycli", "teamtool"]
 ignore = ['(?i)--api-token']  # extra sensitive-command patterns to never record

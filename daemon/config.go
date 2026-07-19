@@ -26,6 +26,11 @@ type Options struct {
 	Gamma         float64  `toml:"gamma"`   // failure-rate suppression strength
 	Delta         float64  `toml:"delta"`   // prior-outcome boost strength
 	Epsilon       float64  `toml:"epsilon"` // confirmed-acceptance boost strength
+	// MinConfidence is the score a suggestion must reach before it is
+	// offered from a generalized (fallback) context. The exact-context
+	// match is always trusted; broader matches must clear this bar so
+	// widening coverage does not turn into guessing.
+	MinConfidence float64  `toml:"min_confidence"`
 	ExtraParents  []string `toml:"extra_parents"`
 	Ignore        []string `toml:"ignore"` // extra regexes for sensitive commands to never record
 	LogLevel      string   `toml:"log_level"`
@@ -41,6 +46,7 @@ func defaults() Options {
 		Gamma:         0.5,
 		Delta:         0.5,
 		Epsilon:       0.5,
+		MinConfidence: 0.20,
 		LogLevel:      "info",
 	}
 }
@@ -111,6 +117,11 @@ func LoadConfig() Options {
 	if v := os.Getenv("HUNCH_EPSILON"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
 			opts.Epsilon = f
+		}
+	}
+	if v := os.Getenv("HUNCH_MIN_CONFIDENCE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			opts.MinConfidence = f
 		}
 	}
 	if v := os.Getenv("HUNCH_EXTRA_PARENTS"); v != "" {

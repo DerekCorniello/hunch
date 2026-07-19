@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Predictions now generalize. State keys compare by exact join, so a query for
+  a shorter context never matched a longer recorded one, and a query without a
+  directory never matched a recording made with one. The documented fallback
+  levels could therefore almost never fire. Observations are now also recorded
+  under their generalized contexts, which is what makes those fallbacks
+  reachable.
+- Suggestions reached through a generalization now carry a concrete command.
+  Raw examples were keyed only by the exact context, so a generalized hit would
+  have rendered as a bare template like `git commit FLAG STR`.
+- A template containing placeholders is never displayed as a suggestion. Both
+  the hint path and the zsh coprocess previously fell back to the template when
+  no concrete command was known, which could put unrunnable text on screen.
+
+### Added
+- `min_confidence` (`HUNCH_MIN_CONFIDENCE`, default `0.20`) sets the score a
+  generalized match must reach before it is shown. Exact-context matches are
+  always shown. Set it to `1` to only ever show exact matches.
+
+On a 10k-command history this moves top-1 from 18.5% to 23.1% and top-3 from
+24.0% to 30.8%, against a 9.0% baseline. Suggestions are offered 78.7% of the
+time rather than 55.8%. The graph grows about 1.6x.
+
 ## v0.1.2 - 2026-07-18
 
 ### Added

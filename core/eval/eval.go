@@ -20,6 +20,10 @@ type Options struct {
 	Delta    float64
 	Epsilon  float64
 
+	// MinConfidence gates suggestions drawn from a generalized context,
+	// mirroring the daemon.
+	MinConfidence float64
+
 	// Warmup is the number of leading commands to learn from without
 	// scoring. Without it the cold start, where nothing can be predicted,
 	// dominates the result and understates steady-state quality.
@@ -34,14 +38,15 @@ type Options struct {
 // DefaultOptions matches the daemon's shipped defaults.
 func DefaultOptions() Options {
 	return Options{
-		HalfLife: 720 * time.Hour,
-		Alpha:    0.5,
-		Beta:     0.75,
-		Gamma:    0.5,
-		Delta:    0.5,
-		Epsilon:  0.5,
-		Warmup:   50,
-		Interval: time.Minute,
+		HalfLife:      720 * time.Hour,
+		Alpha:         0.5,
+		Beta:          0.75,
+		Gamma:         0.5,
+		Delta:         0.5,
+		Epsilon:       0.5,
+		MinConfidence: 0.20,
+		Warmup:        50,
+		Interval:      time.Minute,
 	}
 }
 
@@ -97,11 +102,16 @@ func Run(templates []string, opts Options) Result {
 			if mostFrequent == actual {
 				result.BaselineTop1++
 			}
-			score(&result, rank(p, prev1, prev2, at), actual)
+			score(&result, rank(p, prev1, prev2, at, opts.MinConfidence), actual)
 		}
 
 		if actual != "" {
+			// Mirror the daemon's backoff recording so a fallback query
+			// has something to match.
 			g.Record([]string{prev1, prev2}, actual, at)
+			if prev2 != "" {
+				g.Record([]string{prev2}, actual, at)
+			}
 			freq[actual]++
 			if freq[actual] > freq[mostFrequent] {
 				mostFrequent = actual
@@ -112,19 +122,18 @@ func Run(templates []string, opts Options) Result {
 	return result
 }
 
-// rank returns the top suggestions for a state, applying the same shortening
-// fallback the daemon uses: if the full two-command window has no data, try
-// progressively less context rather than offering nothing.
-func rank(p *predict.Predictor, prev1, prev2 string, at time.Time) []types.Suggestion {
-	windows := [][]types.Command{
-		{{Template: prev1}, {Template: prev2}},
-		{{Template: prev2}},
-		{},
+// rank mirrors the daemon's fallback: the exact context is trusted as-is,
+// while a narrower one must clear minConfidence before it is offered.
+func rank(p *predict.Predictor, prev1, prev2 string, at time.Time, minConfidence float64) []types.Suggestion {
+	if s := p.Predict(types.State{Previous: []types.Command{{Template: prev1}, {Template: prev2}}}, at, maxRank); len(s) > 0 {
+		return s
 	}
-	for _, window := range windows {
-		if s := p.Predict(types.State{Previous: window}, at, maxRank); len(s) > 0 {
-			return s
-		}
+	if prev2 == "" {
+		return nil
+	}
+	s := p.Predict(types.State{Previous: []types.Command{{Template: prev2}}}, at, maxRank)
+	if len(s) > 0 && s[0].Score >= minConfidence {
+		return s
 	}
 	return nil
 }

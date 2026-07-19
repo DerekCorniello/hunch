@@ -179,11 +179,9 @@ func cmdClientPredict(args []string) error {
 		return nil
 	}
 	if *rawOnly {
-		raw := resp.Suggestions[0].Raw
-		if raw == "" {
-			raw = resp.Suggestions[0].Template
+		if cmd := ipc.DisplayCommand(resp.Suggestions[0].Raw, resp.Suggestions[0].Template); cmd != "" {
+			fmt.Println(cmd)
 		}
-		fmt.Println(raw)
 		return nil
 	}
 
@@ -385,10 +383,8 @@ func serveQuery(socket string, req ipc.ServeRequest) []string {
 	}
 	raws := make([]string, 0, len(resp.Suggestions))
 	for _, s := range resp.Suggestions {
-		if s.Raw != "" {
-			raws = append(raws, s.Raw)
-		} else {
-			raws = append(raws, s.Template)
+		if cmd := ipc.DisplayCommand(s.Raw, s.Template); cmd != "" {
+			raws = append(raws, cmd)
 		}
 	}
 	return raws

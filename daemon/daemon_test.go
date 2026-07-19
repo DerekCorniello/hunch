@@ -389,11 +389,24 @@ func TestDaemonExport(t *testing.T) {
 	readJSON(t, conn, &exportResp)
 	conn.Close()
 
-	if len(exportResp.Transitions) != 1 {
-		t.Fatalf("expected 1 transition in export, got %d", len(exportResp.Transitions))
+	// One observation is recorded under its exact context plus the shorter
+	// generalization, so the fallback query has a key to match. See
+	// backoffStates.
+	if len(exportResp.Transitions) != 2 {
+		t.Fatalf("expected 2 transitions in export (exact plus generalization), got %d", len(exportResp.Transitions))
 	}
-	if exportResp.Transitions[0].Next != "git commit FLAG STR" {
-		t.Errorf("exported next = %q, want %q", exportResp.Transitions[0].Next, "git commit FLAG STR")
+
+	states := make(map[string]bool)
+	for _, tr := range exportResp.Transitions {
+		if tr.Next != "git commit FLAG STR" {
+			t.Errorf("exported next = %q, want %q", tr.Next, "git commit FLAG STR")
+		}
+		states[strings.Join(tr.State, "|")] = true
+	}
+	for _, want := range []string{"|git add PATH", "git add PATH"} {
+		if !states[want] {
+			t.Errorf("export is missing the state key %q; got %v", want, states)
+		}
 	}
 }
 
