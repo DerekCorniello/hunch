@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -1262,4 +1263,86 @@ func TestDaemonStatsOp(t *testing.T) {
 	if resp.Alpha != 0.5 {
 		t.Errorf("alpha = %f, want 0.5", resp.Alpha)
 	}
+}
+
+// A seed imported through the daemon must still be there after a restart.
+// It was not: seed timestamps did not unmarshal, so every imported transition
+// carried a zero LastSeen, and the decay pass that runs at startup read them
+// as two thousand years old and pruned the lot. Import reported success and
+// predictions worked until the next restart, which is what made it invisible.
+func TestImportedSeedSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hunch.db")
+	seedPath := filepath.Join(dir, "seed.json")
+
+	seed := fmt.Sprintf(
+		`{"version":1,"transitions":[{"state":["","a"],"next":"b","count":5,"last_seen":%q}]}`,
+		time.Now().UTC().Format(time.RFC3339))
+	if err := os.WriteFile(seedPath, []byte(seed), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// runDaemon starts a daemon on dbPath, calls fn, then shuts it down and
+	// waits for the socket to go away so the flush on stop has completed.
+	runDaemon := func(fn func(socket string)) {
+		opts := LoadConfig()
+		opts.Socket = testSockPath(t)
+		opts.DBPath = dbPath
+
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			if err := Run(ctx, opts); err != nil && ctx.Err() == nil {
+				t.Errorf("daemon error: %v", err)
+			}
+		}()
+		waitForSocket(t, opts.Socket, 5*time.Second)
+
+		fn(opts.Socket)
+
+		cancel()
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(opts.Socket); os.IsNotExist(err) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatal("daemon did not shut down")
+	}
+
+	runDaemon(func(socket string) {
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{"op": "import", "next": seedPath})
+		var resp map[string]interface{}
+		readJSON(t, conn, &resp)
+		conn.Close()
+		if resp["ok"] != true {
+			t.Fatalf("import failed: %v", resp)
+		}
+	})
+
+	runDaemon(func(socket string) {
+		conn := dial(t, socket)
+		writeJSON(t, conn, map[string]interface{}{
+			"op": "predict", "state": []string{"", "a"}, "limit": 5,
+		})
+		var resp struct {
+			Suggestions []struct {
+				Template string `json:"template"`
+				Count    int    `json:"count"`
+			} `json:"suggestions"`
+		}
+		readJSON(t, conn, &resp)
+		conn.Close()
+
+		if len(resp.Suggestions) == 0 {
+			t.Fatal("the imported seed did not survive a restart")
+		}
+		if resp.Suggestions[0].Template != "b" {
+			t.Errorf("template = %q, want %q", resp.Suggestions[0].Template, "b")
+		}
+		if resp.Suggestions[0].Count != 5 {
+			t.Errorf("count = %d, want 5 (the seed count was not preserved)", resp.Suggestions[0].Count)
+		}
+	})
 }

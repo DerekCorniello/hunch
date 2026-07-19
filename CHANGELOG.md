@@ -3,6 +3,18 @@
 ## Unreleased
 
 ### Fixed
+- Imported seeds no longer vanish on the next daemon restart. `graph.Transition`
+  carried no JSON tags, so a seed file's `last_seen` never unmarshaled and every
+  imported transition got a zero timestamp. Import reported success and
+  predictions worked, then the decay pass at the next startup read those
+  transitions as two thousand years old and pruned all of them. The field names
+  are now tagged and pinned by a test.
+- `hunch client export` emits a seed envelope instead of a bare array, so its
+  output can be fed back to `client import` or `daemon run --seed`. The
+  documented export-to-seed workflow previously failed outright.
+- A seed whose timestamps are missing or unparseable is now rejected at import
+  with an error naming the offending transition, rather than accepted and
+  silently deleted later.
 - zsh hooks are registered through `add-zle-hook-widget` instead of `zle -N`.
   Binding a hook directly replaces whatever was bound before, so hunch could
   silently disable another plugin's `zle-line-pre-redraw`, and a plugin loaded

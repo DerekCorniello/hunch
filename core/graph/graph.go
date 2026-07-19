@@ -29,28 +29,33 @@ const (
 )
 
 // Transition represents a single observed state -> next transition.
+//
+// The JSON names are part of the seed file format, and match the field names
+// used by the export IPC response so that exported data can be fed back in as
+// a seed. Renaming one without the other silently breaks that round trip:
+// unmatched fields unmarshal to their zero value rather than erroring.
 type Transition struct {
-	State    []string  // last N templates, most recent last
-	Next     string    // normalized template that followed
-	Count    int       // times this (state, next) pair was recorded
-	LastSeen time.Time // most recent observation
+	State    []string  `json:"state"`     // last N templates, most recent last
+	Next     string    `json:"next"`      // normalized template that followed
+	Count    int       `json:"count"`     // times this (state, next) pair was recorded
+	LastSeen time.Time `json:"last_seen"` // most recent observation
 
 	// CWDs is the histogram of working directories in which Next was run,
 	// used for the location-affinity boost. May be nil.
-	CWDs map[string]int
+	CWDs map[string]int `json:"cwds,omitempty"`
 	// NextSuccess/NextFailure count how often Next itself exited
 	// successfully or with failure, used to suppress chronically-failing
 	// suggestions.
-	NextSuccess int
-	NextFailure int
+	NextSuccess int `json:"next_success,omitempty"`
+	NextFailure int `json:"next_failure,omitempty"`
 	// PriorSuccess/PriorFailure count how often this transition followed a
 	// prior command that succeeded or failed, used to weight by prior
 	// outcome context.
-	PriorSuccess int
-	PriorFailure int
+	PriorSuccess int `json:"prior_success,omitempty"`
+	PriorFailure int `json:"prior_failure,omitempty"`
 	// Accepted counts how often the executed command matched a suggestion
 	// hunch had shown for this state, used to boost confirmed transitions.
-	Accepted int
+	Accepted int `json:"accepted,omitempty"`
 }
 
 // Observation is a single recorded transition with its soft-signal context.

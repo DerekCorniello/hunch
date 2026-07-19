@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DerekCorniello/hunch/core/graph"
 	"github.com/DerekCorniello/hunch/daemon"
 	"github.com/DerekCorniello/hunch/ipc"
 )
@@ -215,9 +216,31 @@ func cmdClientExport() error {
 		return err
 	}
 
-	b, err := json.MarshalIndent(resp.Transitions, "", "  ")
+	// Emit a seed envelope rather than a bare array, so the output can be fed
+	// straight back to `hunch client import` or `hunch daemon run --seed`.
+	// A bare array is not a seed and import rejects it.
+	seed := graph.Seed{
+		Version:     1,
+		Source:      "hunch export",
+		GeneratedAt: time.Now(),
+		Transitions: make([]graph.Transition, 0, len(resp.Transitions)),
+	}
+	for _, t := range resp.Transitions {
+		lastSeen, err := time.Parse(time.RFC3339, t.LastSeen)
+		if err != nil {
+			return fmt.Errorf("parse last_seen for %q: %w", t.Next, err)
+		}
+		seed.Transitions = append(seed.Transitions, graph.Transition{
+			State:    t.State,
+			Next:     t.Next,
+			Count:    t.Count,
+			LastSeen: lastSeen,
+		})
+	}
+
+	b, err := json.MarshalIndent(seed, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal transitions: %w", err)
+		return fmt.Errorf("marshal seed: %w", err)
 	}
 	fmt.Println(string(b))
 	return nil

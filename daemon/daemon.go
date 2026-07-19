@@ -351,6 +351,10 @@ func (d *daemon) importSeed(path string) error {
 		return fmt.Errorf("unmarshal seed: %w", err)
 	}
 
+	if err := seed.Validate(); err != nil {
+		return fmt.Errorf("invalid seed: %w", err)
+	}
+
 	if err := d.g.Load().Merge(seed.Transitions); err != nil {
 		return fmt.Errorf("merge seed: %w", err)
 	}
