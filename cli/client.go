@@ -195,22 +195,45 @@ func cmdClientPredict(args []string) error {
 }
 
 func cmdClientReset() error {
-	// Reset clears both the database and the daemon's in-memory graph, so it
-	// has to go through a running daemon. Start one rather than failing with
-	// a connection error: "stop the daemon, then reset" is the obvious way to
-	// wipe state, and init and import-history already start it on demand.
-	if err := ensureDaemonRunning(); err != nil {
-		return fmt.Errorf("daemon must be running to reset: %w", err)
-	}
+	opts := daemon.LoadConfig()
 
-	req := ipc.Request{Op: "reset"}
-	raw, err := sendRequest(req)
+	// Wiping data should not depend on a background process. When a daemon is
+	// running it has to do the reset, so its in-memory graph is cleared too
+	// and cannot flush stale data back. When none is running there is no such
+	// state, so the database files are simply removed. Neither path starts a
+	// daemon: "stop the daemon, then reset" should stay stopped.
+	if opts.Socket != "" {
+		if conn, err := daemon.Dial(opts.Socket, 500*time.Millisecond); err == nil {
+			conn.Close()
+			return resetViaDaemon()
+		}
+	}
+	return resetDatabaseFiles(opts.DBPath)
+}
+
+func resetViaDaemon() error {
+	raw, err := sendRequest(ipc.Request{Op: "reset"})
 	if err != nil {
 		return err
 	}
 	var okResp ipc.OKResponse
 	if json.Unmarshal(raw, &okResp) != nil || !okResp.OK {
 		return fmt.Errorf("daemon returned unexpected response")
+	}
+	fmt.Println("ok")
+	return nil
+}
+
+// resetDatabaseFiles removes the SQLite database and its WAL sidecars. A
+// missing file is success: the goal is that no learned data remains.
+func resetDatabaseFiles(dbPath string) error {
+	if dbPath == "" {
+		return fmt.Errorf("could not determine database path; set HUNCH_DB_PATH")
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Remove(dbPath + suffix); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", dbPath+suffix, err)
+		}
 	}
 	fmt.Println("ok")
 	return nil

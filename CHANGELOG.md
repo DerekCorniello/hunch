@@ -3,10 +3,11 @@
 ## Unreleased
 
 ### Fixed
-- `hunch reset` starts the daemon instead of failing with a connection error.
-  It clears the in-memory graph as well as the database, so it needs a daemon,
-  but stopping the daemon first is the obvious way to wipe state and `init` and
-  `import-history` already start one on demand.
+- `hunch reset` works whether or not a daemon is running, and never starts one.
+  With a daemon up it resets over IPC so the in-memory graph is cleared too;
+  with none running it just deletes the database files. Wiping data should not
+  depend on a background process, and "stop the daemon, then reset" should
+  leave it stopped.
 - Importing history no longer inflates counts. `Merge` added seed counts to
   existing ones, but a seed states how many times a transition was observed
   rather than supplying that many new observations. A shell history file

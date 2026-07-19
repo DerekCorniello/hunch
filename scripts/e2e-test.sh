@@ -87,18 +87,18 @@ if [[ -n "$result" ]]; then
 fi
 echo "Reset OK"
 
-# Reset with no daemon running. Stopping the daemon and then wiping state is
-# the obvious order to do it in, and reset needs a daemon because it clears the
-# in-memory graph too, so it has to start one rather than fail.
+# Reset with no daemon running. Wiping data must not depend on a background
+# process, and must not spin one up: stopping the daemon and then resetting is
+# the obvious order, and the daemon should stay stopped.
 echo "Testing reset with daemon stopped..."
 "$HUNCH_BIN" daemon stop >/dev/null 2>&1
 sleep 1
 if ! "$HUNCH_BIN" reset >/dev/null 2>&1; then
-    echo "FAIL: reset did not start a daemon when none was running"
+    echo "FAIL: reset errored with no daemon running"
     exit 1
 fi
-if ! "$HUNCH_BIN" daemon status >/dev/null 2>&1; then
-    echo "FAIL: reset left no daemon running"
+if "$HUNCH_BIN" daemon status >/dev/null 2>&1; then
+    echo "FAIL: reset started a daemon that should have stayed stopped"
     exit 1
 fi
 echo "Reset with stopped daemon OK"
