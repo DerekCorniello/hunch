@@ -125,18 +125,7 @@ func ensureDaemonRunning() error {
 func runImport(shell, path string, threads int, progress func(string)) error {
 	progress(fmt.Sprintf("Parsing %s history", shell))
 
-	var rawCmds []string
-	var err error
-	switch shell {
-	case "zsh":
-		rawCmds, err = parseZshHistory(path)
-	case "bash":
-		rawCmds, err = parseBashHistory(path)
-	case "fish":
-		rawCmds, err = parseFishHistory(path)
-	case "powershell":
-		rawCmds, err = parsePowerShellHistory()
-	}
+	rawCmds, err := parseHistory(shell, path)
 	if err != nil {
 		return fmt.Errorf("parse history: %w", err)
 	}

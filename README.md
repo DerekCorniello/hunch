@@ -173,6 +173,23 @@ Import shell command history as training data for predictions. Supports `zsh`, `
 Processes history by parsing commands, normalizing them into templates, building
 state transitions, and importing into the daemon as a seed.
 
+### `hunch eval <shell>`
+
+Measure how well hunch predicts your own history. Replays your shell history in
+order, predicting each command using only the commands before it, which is how
+the daemon sees your session as you work.
+
+```
+--path <file>      History file path (defaults to the shell's standard location)
+--warmup <n>       Commands to learn from before scoring begins (default: 50)
+```
+
+Reports top-1, top-3, and top-5 hit rates, how often any suggestion was
+offered, and a baseline: the hit rate you would get by always guessing your
+single most frequent command. The baseline is the number worth comparing
+against, since a shell history dominated by one command can make a weak model
+look strong.
+
 ### `hunch daemon <action>`
 
 Manage the background daemon process.
@@ -417,6 +434,31 @@ Register-ScheduledTask -TaskName HunchDaemon -Action $action -Trigger $trigger
 ```
 
 ---
+
+## How this compares
+
+Hunch overlaps with tools you may already run. It is designed to sit alongside
+them rather than replace them.
+
+| Tool | What it answers | Relationship to hunch |
+|------|-----------------|-----------------------|
+| `zsh-autosuggestions` / fish autosuggestions | "What did I type that started this way?" | Prefix search over history. It needs you to start typing; hunch suggests before you type anything, based on what you just ran. They compose. |
+| `atuin` | "What did I run before, and where?" | A searchable history database with sync. It is recall on demand; hunch is a prediction offered unprompted. Different moments. |
+| `fzf` history widget | "Let me hunt through history interactively." | Explicit search you invoke. hunch never requires an invocation. |
+| `thefuck` | "That command failed, what did I mean?" | Corrects the command you just ran. hunch proposes the next one. |
+
+The distinguishing idea is that hunch models the *sequence*: it learns that
+`cargo build` tends to be followed by `cargo run`, and conditions that on the
+directory you are in and whether the last command succeeded. Prefix-matching
+tools have no notion of what typically comes next.
+
+Two honest caveats. Predictions are templates hydrated with a concrete
+past command, so hunch suggests things you have run before, not novel commands.
+And it needs history to be useful: run `hunch import-history` to start from
+your existing history rather than from nothing.
+
+Measure it on your own history with `hunch eval <shell>` rather than taking
+any of this on faith.
 
 ## Non-goals
 

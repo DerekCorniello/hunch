@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- `hunch eval <shell>` measures prediction accuracy by replaying your own
+  history, reporting top-1/3/5 hit rates against a most-frequent-command
+  baseline. Prediction quality was previously unmeasurable.
 - Releases now publish a `SHA256SUMS` manifest, and `hunch update` verifies the
   downloaded binary against it before installing. Verification fails closed: a
   missing manifest or mismatched digest aborts the update.
@@ -19,6 +22,8 @@
 - Failed response writes are logged instead of discarded via `_ =`.
 - `cmdDoctor` separates diagnosis from rendering, so check logic is testable
   and output is column-aligned.
+- README documents how hunch relates to zsh-autosuggestions, atuin, fzf, and
+  thefuck, including what it cannot do.
 
 ## v0.1.1 - 2026-07-18
 

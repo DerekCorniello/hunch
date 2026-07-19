@@ -28,6 +28,8 @@ func Run(args []string) error {
 		return cmdClient(args[1:])
 	case "import-history":
 		return cmdImportHistory(args[1:])
+	case "eval":
+		return cmdEval(args[1:])
 	case "uninstall":
 		skipConfirm := false
 		for _, arg := range args[1:] {
@@ -65,6 +67,9 @@ Commands:
   daemon <action>      Manage the daemon (run|start|stop|status)
   client <op>          Send an IPC operation (record|predict|reset|export|normalize|stats|config|import|serve)
   import-history <sh>  Import shell history to jump-start predictions
+  eval <shell>         Measure prediction accuracy against your own history
+    --path <file>      History file path
+    --warmup <n>       Commands to learn from before scoring (default: 50)
   uninstall            Remove hunch from your system
     --yes, -y          Skip confirmation prompt
   doctor               Check hunch installation and daemon health
