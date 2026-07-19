@@ -1283,14 +1283,19 @@ func TestImportedSeedSurvivesRestart(t *testing.T) {
 	}
 
 	// runDaemon starts a daemon on dbPath, calls fn, then shuts it down and
-	// waits for the socket to go away so the flush on stop has completed.
+	// waits for Run to return. Waiting on Run rather than on the socket file
+	// matters: stop removes the socket before releasing the lock, so a
+	// socket-based wait can start the next daemon while the first still holds
+	// the lock. That is a race everywhere and a reliable failure on Windows.
 	runDaemon := func(fn func(socket string)) {
 		opts := LoadConfig()
 		opts.Socket = testSockPath(t)
 		opts.DBPath = dbPath
 
 		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
 		go func() {
+			defer close(done)
 			if err := Run(ctx, opts); err != nil && ctx.Err() == nil {
 				t.Errorf("daemon error: %v", err)
 			}
@@ -1300,14 +1305,11 @@ func TestImportedSeedSurvivesRestart(t *testing.T) {
 		fn(opts.Socket)
 
 		cancel()
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, err := os.Stat(opts.Socket); os.IsNotExist(err) {
-				return
-			}
-			time.Sleep(20 * time.Millisecond)
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("daemon did not shut down")
 		}
-		t.Fatal("daemon did not shut down")
 	}
 
 	runDaemon(func(socket string) {
