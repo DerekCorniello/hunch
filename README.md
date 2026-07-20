@@ -3,9 +3,9 @@
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Hunch is a shell companion that learns your command-line behavior and predicts what you're most likely to do next.
+Hunch predicts your next shell command from your own history. Local, statistical, zero telemetry.
 
-It builds a lightweight statistical model from your own command history - no AI, no cloud, no telemetry. Just fast, local suggestions that get better over time.
+It learns which commands tend to follow which, then shows the most likely next one as ghost text - accept it with a keystroke, or keep typing. No LLM, no cloud, no accounts, and it gets better the more you use it.
 
 ---
 

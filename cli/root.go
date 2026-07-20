@@ -61,29 +61,25 @@ func printUsage() error {
 func usageText() string {
 	return `Usage: hunch <command> [options]
 
+hunch learns your command history and suggests your next command as you type.
+Set it up once with 'hunch init'; after that it runs in the background on its
+own and you never need to touch it.
+
 Commands:
-  init [shell]         Set up shell integration (auto-detects shell from $SHELL)
-    --auto             Automatically append source line to rc file
-  daemon <action>      Manage the daemon (run|start|stop|status)
-  client <op>          Send an IPC operation (record|predict|reset|export|normalize|stats|config|import|serve)
-  import-history <sh>  Import shell history to jump-start predictions
+  init [shell]         Install the shell integration
+    --auto             Append the source line to your rc file for you
+  doctor               Check installation and daemon health
+  update               Update to the latest release
+  uninstall [--yes]    Remove hunch and all its data
+  import-history <sh>  Seed predictions from your existing shell history
+  stats                Show what hunch has learned so far
   eval <shell>         Measure prediction accuracy against your own history
-    --path <file>      History file path
-    --warmup <n>       Commands to learn from before scoring (default: 50)
-  uninstall            Remove hunch from your system
-    --yes, -y          Skip confirmation prompt
-  doctor               Check hunch installation and daemon health
-  update               Download and install the latest release
-  version              Print version
-  stats                Show daemon statistics (shortcut for: client stats)
-  predict [flags]      Get top predictions (shortcut for: client predict)
-    --state <s>        Comma-separated previous commands
-    --prefix <p>       Filter by prefix
-    --limit <n>        Max suggestions (default: 3)
-  reset                Clear all learned transitions (shortcut for: client reset)
+  reset                Forget everything and start over
+  daemon <action>      Manage the background daemon (run|start|stop|status)
+  version              Print the version
 
 Flags:
-  --version, -v      Print version
-  --help, -h         Print this help
+  --version, -v        Print version
+  --help, -h           Print this help
 `
 }
