@@ -214,21 +214,14 @@ func sendSeed(transitions []graph.Transition) error {
 		Transitions: transitions,
 	}
 
-	tmpFile, err := os.CreateTemp("", "hunch-seed-*.json")
+	data, err := json.Marshal(seed)
 	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+		return fmt.Errorf("marshal seed: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
-
-	if err := json.NewEncoder(tmpFile).Encode(seed); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("write seed: %w", err)
-	}
-	tmpFile.Close()
 
 	req := ipc.Request{
-		Op:   "import",
-		Next: tmpFile.Name(),
+		Op:       "import",
+		SeedData: string(data),
 	}
 	_, err = sendRequest(req)
 	return err

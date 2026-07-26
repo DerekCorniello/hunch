@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DerekCorniello/hunch/core/graph"
+	"github.com/DerekCorniello/hunch/core/types"
 )
 
 // scoredTransition pairs a graph transition with its computed score.
@@ -25,7 +26,7 @@ type scoreParams struct {
 	delta        float64       // prior-outcome boost strength
 	epsilon      float64       // confirmed-acceptance boost strength
 	cwd          string        // query working directory ("" if unknown)
-	priorOutcome graph.Outcome // outcome of the most recent command
+	priorOutcome types.Outcome // outcome of the most recent command
 	at           time.Time
 }
 
@@ -62,7 +63,7 @@ func scoreTransitions(transitions []graph.Transition, p scoreParams) []scoredTra
 		if p.beta > 0 {
 			eff *= 1 + p.beta*cwdAffinity(t.CWDs, t.Count, p.cwd)
 		}
-		if p.delta > 0 && p.priorOutcome != graph.OutcomeUnknown {
+		if p.delta > 0 && p.priorOutcome != types.OutcomeUnknown {
 			eff *= 1 + p.delta*priorAffinity(t, p.priorOutcome)
 		}
 		if p.epsilon > 0 && t.Count > 0 {
@@ -125,15 +126,15 @@ func cwdAffinity(cwds map[string]int, count int, queryCWD string) float64 {
 
 // priorAffinity is the fraction of a transition's observations that followed a
 // prior command with the given outcome, in [0, 1].
-func priorAffinity(t graph.Transition, prior graph.Outcome) float64 {
+func priorAffinity(t graph.Transition, prior types.Outcome) float64 {
 	if t.Count == 0 {
 		return 0
 	}
 	var match int
 	switch prior {
-	case graph.OutcomeSuccess:
+	case types.OutcomeSuccess:
 		match = t.PriorSuccess
-	case graph.OutcomeFailure:
+	case types.OutcomeFailure:
 		match = t.PriorFailure
 	default:
 		return 0

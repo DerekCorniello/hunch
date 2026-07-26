@@ -54,7 +54,12 @@ func cmdEval(args []string) error {
 		return fmt.Errorf("history has %d commands, need more than the warmup of %d", len(templates), opts.Warmup)
 	}
 
-	printEvalResult(eval.Run(templates, opts), len(rawCmds))
+	commands := make([]eval.Command, len(templates))
+	for i, tmpl := range templates {
+		commands[i] = eval.Command{Template: tmpl}
+	}
+
+	printEvalResult(eval.Run(commands, opts), len(rawCmds))
 	return nil
 }
 

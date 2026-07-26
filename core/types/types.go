@@ -49,9 +49,12 @@ type State struct {
 // Score is a relative ranking in [0, 1]; callers should treat it as a
 // comparison value, not a probability. Count is the number of observed
 // transitions that produced this suggestion.
+//
+// JSON tags enable direct serialization in IPC responses without a
+// separate wire type.
 type Suggestion struct {
-	Template string
-	Raw      string
-	Score    float64
-	Count    int
+	Template string  `json:"template"`
+	Raw      string  `json:"raw,omitempty"`
+	Score    float64 `json:"score"`
+	Count    int     `json:"count"`
 }

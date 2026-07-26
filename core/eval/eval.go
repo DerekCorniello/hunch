@@ -3,6 +3,7 @@
 package eval
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/DerekCorniello/hunch/core/graph"
@@ -35,6 +36,13 @@ type Options struct {
 	// history files do not reliably carry timestamps, so replay assumes a
 	// constant cadence; this is what exercises the decay term.
 	Interval time.Duration
+}
+
+// Command represents a single command in the replay input.
+type Command struct {
+	Template     string // normalized command template
+	CWD          string // working directory ("" if unknown)
+	PriorOutcome string // outcome of the command preceding this one
 }
 
 // DefaultOptions matches the daemon's shipped defaults.
@@ -80,13 +88,13 @@ func (r Result) Rate(n int) float64 {
 // maxRank is the deepest position Run inspects, matching the widest TopN.
 const maxRank = 5
 
-// Run replays templates in order, predicting each command from the ones
-// before it and then learning it.
+// Run replays commands in order, predicting each from the ones before it and
+// then learning it.
 //
 // The evaluation is prequential: every command is predicted by a model that
 // has seen only earlier commands, which is exactly how the daemon operates.
 // A held-out split would instead measure a model trained on the user's future.
-func Run(templates []string, opts Options) Result {
+func Run(commands []Command, opts Options) Result {
 	g := graph.New(2)
 	p := predict.New(g, opts.HalfLife, opts.Alpha, opts.Beta, opts.Gamma, opts.Delta, opts.Epsilon)
 
@@ -97,7 +105,8 @@ func Run(templates []string, opts Options) Result {
 	var result Result
 	var prev1, prev2 string
 
-	for i, actual := range templates {
+	for i, cmd := range commands {
+		actual := cmd.Template
 		at := start.Add(time.Duration(i) * opts.Interval)
 
 		if i >= opts.Warmup && actual != "" {
@@ -105,13 +114,24 @@ func Run(templates []string, opts Options) Result {
 			if mostFrequent == actual {
 				result.BaselineTop1++
 			}
-			score(&result, rank(p, prev1, prev2, at, opts), actual)
+			suggestions := predictWithFallback(p, prev1, prev2, cmd.CWD, cmd.PriorOutcome, at, opts)
+			score(&result, suggestions, actual)
 		}
 
 		if actual != "" {
 			// Mirror the daemon's backoff recording so a fallback query
 			// has something to match.
-			g.Record([]string{prev1, prev2}, actual, at)
+			state := []string{prev1, prev2}
+			if cmd.CWD != "" {
+				state = append([]string{cmd.CWD}, state...)
+			}
+			for _, st := range graph.BackoffStates(state, cmd.CWD != "") {
+				g.RecordObs(graph.Observation{
+					State: st,
+					Next:  actual,
+					At:    at,
+				})
+			}
 			if prev2 != "" {
 				g.Record([]string{prev2}, actual, at)
 			}
@@ -125,22 +145,49 @@ func Run(templates []string, opts Options) Result {
 	return result
 }
 
-// rank mirrors the daemon's fallback: every candidate must clear MinCount,
-// the exact context is otherwise trusted as-is, and a narrower context must
-// additionally clear MinConfidence.
-func rank(p *predict.Predictor, prev1, prev2 string, at time.Time, opts Options) []types.Suggestion {
+// predictWithFallback mirrors the daemon's predictWithFallback (handlers.go).
+// It queries the predictor through progressively more general state keys:
+// exact context with CWD, ancestor CWDs, no CWD, shorter history windows.
+func predictWithFallback(p *predict.Predictor, prev1, prev2 string, cwd, priorOutcome string, at time.Time, opts Options) []types.Suggestion {
 	query := func(previous []types.Command) []types.Suggestion {
-		return withMinCount(p.Predict(types.State{Previous: previous}, at, maxRank), opts.MinCount)
+		return withMinCount(p.Predict(types.State{Previous: previous, CWD: ""}, at, maxRank), opts.MinCount)
+	}
+	queryWithCWD := func(previous []types.Command, dir string) []types.Suggestion {
+		return withMinCount(p.Predict(types.State{Previous: previous, CWD: dir}, at, maxRank), opts.MinCount)
+	}
+	confident := func(s []types.Suggestion) bool {
+		return len(s) > 0 && s[0].Score >= opts.MinConfidence
 	}
 
-	if s := query([]types.Command{{Template: prev1}, {Template: prev2}}); len(s) > 0 {
+	prev := []types.Command{{Template: prev1}, {Template: prev2}}
+
+	// Level 1: exact directory, as learned from live sessions.
+	suggestions := queryWithCWD(prev, cwd)
+	if len(suggestions) > 0 {
+		return suggestions
+	}
+
+	// Level 2: ancestor directories, so a workflow learned in ~/project
+	// still applies in ~/project/src.
+	if cwd != "" {
+		for parent := filepath.Dir(cwd); parent != cwd && parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
+			if s := queryWithCWD(prev, parent); confident(s) {
+				return s
+			}
+		}
+	}
+
+	// Level 3: no directory at all, which is how imported shell history and
+	// anything recorded before CWD tracking is keyed.
+	if s := query(prev); confident(s) {
 		return s
 	}
-	if prev2 == "" {
-		return nil
-	}
-	if s := query([]types.Command{{Template: prev2}}); len(s) > 0 && s[0].Score >= opts.MinConfidence {
-		return s
+
+	// Level 4: progressively shorter history windows.
+	for trim := 1; trim <= len(prev); trim++ {
+		if s := query(prev[trim:]); confident(s) {
+			return s
+		}
 	}
 	return nil
 }

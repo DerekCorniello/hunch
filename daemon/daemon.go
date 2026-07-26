@@ -345,7 +345,14 @@ func (d *daemon) importSeed(path string) error {
 	if err != nil {
 		return fmt.Errorf("read seed: %w", err)
 	}
+	return d.importSeedFromBytes(data)
+}
 
+func (d *daemon) importSeedFromData(data string) error {
+	return d.importSeedFromBytes([]byte(data))
+}
+
+func (d *daemon) importSeedFromBytes(data []byte) error {
 	var seed graph.Seed
 	if err := json.Unmarshal(data, &seed); err != nil {
 		return fmt.Errorf("unmarshal seed: %w", err)

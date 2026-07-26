@@ -32,16 +32,7 @@ func writeOK(conn net.Conn) error {
 
 // writeSuggestions writes a predict response.
 func writeSuggestions(conn net.Conn, suggestions []types.Suggestion) error {
-	sj := make([]ipc.SuggestionJSON, len(suggestions))
-	for i, s := range suggestions {
-		sj[i] = ipc.SuggestionJSON{
-			Template: s.Template,
-			Raw:      s.Raw,
-			Score:    s.Score,
-			Count:    s.Count,
-		}
-	}
-	resp := ipc.SuggestionsResponse{Suggestions: sj}
+	resp := ipc.SuggestionsResponse{Suggestions: suggestions}
 	return json.NewEncoder(conn).Encode(resp)
 }
 

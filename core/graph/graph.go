@@ -14,18 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-// Outcome classifies a command's exit result for soft weighting. The empty
-// value means "unknown" and contributes to no outcome counter, so commands
-// recorded without an exit code (or interrupted by a signal) never skew the
-// success/failure signal.
-type Outcome string
-
-const (
-	OutcomeUnknown Outcome = ""
-	OutcomeSuccess Outcome = "success"
-	OutcomeFailure Outcome = "failure"
+	"github.com/DerekCorniello/hunch/core/types"
 )
 
 // Transition represents a single observed state -> next transition.
@@ -64,10 +54,10 @@ type Observation struct {
 	Next  string    // normalized template that followed
 	At    time.Time // observation time
 
-	CWD          string  // directory Next ran in; "" if unknown
-	NextOutcome  Outcome // exit result of Next
-	PriorOutcome Outcome // exit result of the command preceding Next
-	Accepted     bool    // Next matched a suggestion hunch had shown
+	CWD          string        // directory Next ran in; "" if unknown
+	NextOutcome  types.Outcome // exit result of Next
+	PriorOutcome types.Outcome // exit result of the command preceding Next
+	Accepted     bool          // Next matched a suggestion hunch had shown
 }
 
 // entry is the internal storage unit for a single (state, next) pair.
@@ -145,15 +135,15 @@ func (g *Graph) RecordObs(obs Observation) {
 		e.cwds[obs.CWD]++
 	}
 	switch obs.NextOutcome {
-	case OutcomeSuccess:
+	case types.OutcomeSuccess:
 		e.nextSuccess++
-	case OutcomeFailure:
+	case types.OutcomeFailure:
 		e.nextFailure++
 	}
 	switch obs.PriorOutcome {
-	case OutcomeSuccess:
+	case types.OutcomeSuccess:
 		e.priorSuccess++
-	case OutcomeFailure:
+	case types.OutcomeFailure:
 		e.priorFailure++
 	}
 	if obs.Accepted {
@@ -198,6 +188,21 @@ func entryToTransition(state []string, next string, e *entry) Transition {
 	}
 }
 
+// scale applies a decay factor to an integer counter. The result is the
+// smallest integer >= n * factor, subject to a floor of 1 when n > 0, so
+// that active transitions with very small decay do not drop to zero and
+// get pruned on the next pass. Scaling does not increase the counter.
+func scale(n int, factor float64) int {
+	if n == 0 || factor >= 1 {
+		return n
+	}
+	s := int(math.Ceil(float64(n) * factor))
+	if s < 1 {
+		s = 1
+	}
+	return s
+}
+
 // copyCWDs returns a copy of a CWD histogram, or nil if empty.
 func copyCWDs(m map[string]int) map[string]int {
 	if len(m) == 0 {
@@ -223,6 +228,10 @@ type DecayResult struct {
 // Decay prunes transitions whose effective weight falls below epsilon and
 // returns what was removed. The effective weight is count * 0.5^(age/halfLife),
 // so a single observation halves in weight every halfLife.
+//
+// For surviving entries the count and sub-counters (NextSuccess, PriorFailure,
+// etc.) are scaled by the same decay factor so that old observations
+// gradually lose influence rather than accumulating without bound.
 func (g *Graph) Decay(at time.Time, halfLife time.Duration) DecayResult {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -233,12 +242,23 @@ func (g *Graph) Decay(at time.Time, halfLife time.Duration) DecayResult {
 		state := strings.Split(sk, "\x00")
 		for next, e := range inner {
 			age := at.Sub(e.lastSeen)
-			weight := float64(e.count) * math.Exp(-math.Ln2*float64(age)/float64(halfLife))
+			decay := math.Exp(-math.Ln2 * float64(age) / float64(halfLife))
+			weight := float64(e.count) * decay
 			if weight < epsilon {
 				stateCopy := make([]string, len(state))
 				copy(stateCopy, state)
 				pruned = append(pruned, Transition{State: stateCopy, Next: next})
 				delete(inner, next)
+				continue
+			}
+			e.count = scale(e.count, decay)
+			e.nextSuccess = scale(e.nextSuccess, decay)
+			e.nextFailure = scale(e.nextFailure, decay)
+			e.priorSuccess = scale(e.priorSuccess, decay)
+			e.priorFailure = scale(e.priorFailure, decay)
+			e.accepted = scale(e.accepted, decay)
+			for cwd := range e.cwds {
+				e.cwds[cwd] = scale(e.cwds[cwd], decay)
 			}
 		}
 		if len(inner) == 0 {

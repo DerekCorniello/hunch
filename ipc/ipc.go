@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/DerekCorniello/hunch/core/graph"
+	"github.com/DerekCorniello/hunch/core/types"
 )
 
 // Request is a parsed IPC request.
@@ -19,6 +20,7 @@ type Request struct {
 	Outcome      string           `json:"outcome,omitempty"`       // outcome of Next (record): "success"/"failure"/""
 	PriorOutcome string           `json:"prior_outcome,omitempty"` // outcome of the command preceding Next / most recent command
 	Suggested    string           `json:"suggested,omitempty"`     // raw suggestion hunch last showed (record): for acceptance detection
+	SeedData     string           `json:"seed_data,omitempty"`     // inline seed JSON for import (alternative to file path)
 }
 
 // RawExampleJSON is a single state+template->raw observation carried by the
@@ -54,20 +56,19 @@ type ServeResponse struct {
 	Raws   []string `json:"raws"`
 }
 
-// SuggestionJSON is the JSON shape for a single suggestion in a predict response.
-type SuggestionJSON struct {
-	Template string  `json:"template"`
-	Raw      string  `json:"raw,omitempty"`
-	Score    float64 `json:"score"`
-	Count    int     `json:"count"`
-}
-
 // TransitionJSON is the JSON shape for a single transition in an export response.
 type TransitionJSON struct {
-	State    []string `json:"state"`
-	Next     string   `json:"next"`
-	Count    int      `json:"count"`
-	LastSeen string   `json:"last_seen"`
+	State    []string       `json:"state"`
+	Next     string         `json:"next"`
+	Count    int            `json:"count"`
+	LastSeen string         `json:"last_seen"`
+	CWDs     map[string]int `json:"cwds,omitempty"`
+
+	NextSuccess  int `json:"next_success,omitempty"`
+	NextFailure  int `json:"next_failure,omitempty"`
+	PriorSuccess int `json:"prior_success,omitempty"`
+	PriorFailure int `json:"prior_failure,omitempty"`
+	Accepted     int `json:"accepted,omitempty"`
 }
 
 // OKResponse is a standard success response.
@@ -77,7 +78,7 @@ type OKResponse struct {
 
 // SuggestionsResponse is a predict response.
 type SuggestionsResponse struct {
-	Suggestions []SuggestionJSON `json:"suggestions"`
+	Suggestions []types.Suggestion `json:"suggestions"`
 }
 
 // TransitionsResponse is an export response.
@@ -115,9 +116,15 @@ type ConfigResponse struct {
 // TransitionFromGraph converts a graph.Transition to TransitionJSON.
 func TransitionFromGraph(t graph.Transition) TransitionJSON {
 	return TransitionJSON{
-		State:    t.State,
-		Next:     t.Next,
-		Count:    t.Count,
-		LastSeen: t.LastSeen.Format(time.RFC3339),
+		State:        t.State,
+		Next:         t.Next,
+		Count:        t.Count,
+		LastSeen:     t.LastSeen.Format(time.RFC3339),
+		CWDs:         t.CWDs,
+		NextSuccess:  t.NextSuccess,
+		NextFailure:  t.NextFailure,
+		PriorSuccess: t.PriorSuccess,
+		PriorFailure: t.PriorFailure,
+		Accepted:     t.Accepted,
 	}
 }

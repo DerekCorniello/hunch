@@ -70,7 +70,7 @@ func (p *Predictor) Predict(state types.State, at time.Time, limit int) []types.
 		delta:        p.delta,
 		epsilon:      p.epsilon,
 		cwd:          state.CWD,
-		priorOutcome: graph.Outcome(state.PriorOutcome),
+		priorOutcome: state.PriorOutcome,
 		at:           at,
 	})
 

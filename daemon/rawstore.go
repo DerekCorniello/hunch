@@ -145,14 +145,15 @@ func (s *rawStore) reset() {
 	s.m = make(map[string]map[string]rawEntry)
 }
 
-// dropOrphaned removes every bucket whose next-command template no longer
-// exists in the graph, so decayed templates do not leak raws indefinitely.
-func (s *rawStore) dropOrphaned(templates []string) {
-	if len(templates) == 0 {
+// dropOrphaned removes every raw-store bucket whose next-command template
+// is in the given set of orphaned templates (templates that no longer exist
+// in the graph), so decayed templates do not leak raws indefinitely.
+func (s *rawStore) dropOrphaned(orphanedTemplates []string) {
+	if len(orphanedTemplates) == 0 {
 		return
 	}
-	orphaned := make(map[string]struct{}, len(templates))
-	for _, tmpl := range templates {
+	orphaned := make(map[string]struct{}, len(orphanedTemplates))
+	for _, tmpl := range orphanedTemplates {
 		orphaned[tmpl] = struct{}{}
 	}
 

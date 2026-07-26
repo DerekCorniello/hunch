@@ -161,8 +161,8 @@ func (d *daemon) handleRecord(conn net.Conn, req ipc.Request) {
 			Next:         normalizedNext,
 			At:           at,
 			CWD:          req.CWD,
-			NextOutcome:  graph.Outcome(req.Outcome),
-			PriorOutcome: graph.Outcome(req.PriorOutcome),
+			NextOutcome:  types.Outcome(req.Outcome),
+			PriorOutcome: types.Outcome(req.PriorOutcome),
 			Accepted:     accepted,
 		})
 	}
@@ -365,6 +365,16 @@ func (d *daemon) handleNormalize(conn net.Conn, req ipc.Request) {
 }
 
 func (d *daemon) handleImport(conn net.Conn, req ipc.Request) {
+	if req.SeedData != "" {
+		if err := d.importSeedFromData(req.SeedData); err != nil {
+			d.respondError(conn, "import failed: %v", err)
+			return
+		}
+		d.pred.Store(d.newPredictor(d.g.Load()))
+		d.respondOK(conn)
+		return
+	}
+
 	if req.Next == "" {
 		d.respondError(conn, "import path required")
 		return

@@ -13,6 +13,14 @@ func testOptions(warmup int) Options {
 	return opts
 }
 
+func cmds(strs []string) []Command {
+	c := make([]Command, len(strs))
+	for i, s := range strs {
+		c[i] = Command{Template: s}
+	}
+	return c
+}
+
 // A strictly repeating workflow is the easiest thing a Markov model can
 // learn, so anything less than near-perfect prediction here is a real defect.
 func TestRunLearnsARepeatingCycle(t *testing.T) {
@@ -21,7 +29,7 @@ func TestRunLearnsARepeatingCycle(t *testing.T) {
 		history = append(history, "git status", "git add PATH", "git commit FLAG STR", "git push")
 	}
 
-	r := Run(history, testOptions(20))
+	r := Run(cmds(history), testOptions(20))
 	if r.Scored == 0 {
 		t.Fatal("nothing was scored")
 	}
@@ -49,7 +57,7 @@ func TestRunFindsNoSignalInUnpredictableInput(t *testing.T) {
 	// top-1 should sit near 1/vocab (2.5%). Allow generous headroom for
 	// smoothing and small-sample noise while still failing loudly if the
 	// model starts claiming real predictive power.
-	r := Run(history, testOptions(50))
+	r := Run(cmds(history), testOptions(50))
 	if got := r.Rate(r.Top1); got > 0.15 {
 		t.Errorf("top-1 = %.1f%% on structureless input, want near %.1f%%", 100*got, 100.0/vocab)
 	}
@@ -62,7 +70,7 @@ func TestRunRespectsWarmup(t *testing.T) {
 	}
 
 	for _, warmup := range []int{0, 10, 50} {
-		r := Run(history, testOptions(warmup))
+		r := Run(cmds(history), testOptions(warmup))
 		if want := len(history) - warmup; r.Scored != want {
 			t.Errorf("warmup %d: scored %d, want %d", warmup, r.Scored, want)
 		}
@@ -71,7 +79,7 @@ func TestRunRespectsWarmup(t *testing.T) {
 
 func TestRunSkipsEmptyTemplates(t *testing.T) {
 	history := []string{"ls", "", "ls", "", "ls", "ls"}
-	r := Run(history, testOptions(0))
+	r := Run(cmds(history), testOptions(0))
 
 	if want := 4; r.Scored != want {
 		t.Errorf("scored %d, want %d (empty templates are not scored)", r.Scored, want)
@@ -85,7 +93,7 @@ func TestRunRanksAreMonotonic(t *testing.T) {
 		history = append(history, "a", "b", "c", "d", "e", "f")
 	}
 
-	r := Run(history, testOptions(10))
+	r := Run(cmds(history), testOptions(10))
 	if r.Top1 > r.Top3 || r.Top3 > r.Top5 {
 		t.Errorf("ranks not monotonic: top1=%d top3=%d top5=%d", r.Top1, r.Top3, r.Top5)
 	}
@@ -105,7 +113,7 @@ func TestRunBaselineTracksMostFrequentCommand(t *testing.T) {
 		}
 	}
 
-	r := Run(history, testOptions(20))
+	r := Run(cmds(history), testOptions(20))
 	rate := r.Rate(r.BaselineTop1)
 	if rate < 0.8 {
 		t.Errorf("baseline = %.1f%%, want >= 80%% when one command dominates", 100*rate)
@@ -118,9 +126,9 @@ func TestRunIsDeterministic(t *testing.T) {
 		history = append(history, "make build", "make test", "git commit FLAG STR")
 	}
 
-	first := Run(history, testOptions(10))
+	first := Run(cmds(history), testOptions(10))
 	for i := 0; i < 3; i++ {
-		if got := Run(history, testOptions(10)); got != first {
+		if got := Run(cmds(history), testOptions(10)); got != first {
 			t.Fatalf("run %d differed: %+v vs %+v", i, got, first)
 		}
 	}
@@ -139,7 +147,7 @@ func TestRunHandlesShortAndEmptyHistories(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := Run(tt.history, testOptions(tt.warmup))
+			r := Run(cmds(tt.history), testOptions(tt.warmup))
 			if r.Scored < 0 || r.Top1 > r.Scored {
 				t.Errorf("nonsensical result: %+v", r)
 			}

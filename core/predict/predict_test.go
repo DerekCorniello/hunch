@@ -290,10 +290,10 @@ func TestPredictFailureSuppression(t *testing.T) {
 	// "flaky" is seen more often but almost always fails; "good" less often
 	// but always succeeds.
 	for range 4 {
-		g.RecordObs(graph.Observation{State: state, Next: "flaky", At: now, NextOutcome: graph.OutcomeFailure})
+		g.RecordObs(graph.Observation{State: state, Next: "flaky", At: now, NextOutcome: types.OutcomeFailure})
 	}
 	for range 3 {
-		g.RecordObs(graph.Observation{State: state, Next: "good", At: now, NextOutcome: graph.OutcomeSuccess})
+		g.RecordObs(graph.Observation{State: state, Next: "good", At: now, NextOutcome: types.OutcomeSuccess})
 	}
 
 	got := p.Predict(windowState("", types.OutcomeUnknown), now, 0)
@@ -313,8 +313,8 @@ func TestPredictPriorOutcomeBoost(t *testing.T) {
 	// "retry" usually follows a failed prior command; "next-step" usually
 	// follows a successful one. Equal overall counts.
 	for range 3 {
-		g.RecordObs(graph.Observation{State: state, Next: "retry", At: now, PriorOutcome: graph.OutcomeFailure})
-		g.RecordObs(graph.Observation{State: state, Next: "next-step", At: now, PriorOutcome: graph.OutcomeSuccess})
+		g.RecordObs(graph.Observation{State: state, Next: "retry", At: now, PriorOutcome: types.OutcomeFailure})
+		g.RecordObs(graph.Observation{State: state, Next: "next-step", At: now, PriorOutcome: types.OutcomeSuccess})
 	}
 
 	afterFail := p.Predict(windowState("", types.OutcomeFailure), now, 0)
@@ -355,7 +355,7 @@ func TestPredictBoostsKeepScoreBounded(t *testing.T) {
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	// Record with CWD in the state key so the CWD-augmented lookup finds it.
 	state := []string{"/proj", "", "cmd"}
-	g.RecordObs(graph.Observation{State: state, Next: "only", At: now, CWD: "/proj", NextOutcome: graph.OutcomeSuccess, PriorOutcome: graph.OutcomeFailure, Accepted: true})
+	g.RecordObs(graph.Observation{State: state, Next: "only", At: now, CWD: "/proj", NextOutcome: types.OutcomeSuccess, PriorOutcome: types.OutcomeFailure, Accepted: true})
 
 	got := p.Predict(windowState("/proj", types.OutcomeFailure), now, 0)
 	if len(got) != 1 {

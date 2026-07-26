@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DerekCorniello/hunch/core/types"
 )
 
 func TestGraphRecordAndTransitions(t *testing.T) {
@@ -37,9 +39,9 @@ func TestGraphRecordObsAccumulatesSignals(t *testing.T) {
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cd"}
 
-	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: OutcomeSuccess, PriorOutcome: OutcomeFailure, Accepted: true})
-	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: OutcomeFailure, PriorOutcome: OutcomeFailure})
-	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/other", NextOutcome: OutcomeSuccess, PriorOutcome: OutcomeSuccess, Accepted: true})
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: types.OutcomeSuccess, PriorOutcome: types.OutcomeFailure, Accepted: true})
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: types.OutcomeFailure, PriorOutcome: types.OutcomeFailure})
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/other", NextOutcome: types.OutcomeSuccess, PriorOutcome: types.OutcomeSuccess, Accepted: true})
 
 	tr := g.Transitions(state)
 	if len(tr) != 1 {
@@ -77,7 +79,7 @@ func TestGraphMergeCombinesSignals(t *testing.T) {
 	g := New(2)
 	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
 	state := []string{"", "cd"}
-	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: OutcomeSuccess, Accepted: true})
+	g.RecordObs(Observation{State: state, Next: "make", At: now, CWD: "/proj", NextOutcome: types.OutcomeSuccess, Accepted: true})
 
 	seed := []Transition{{
 		State: state, Next: "make", Count: 5, LastSeen: now,

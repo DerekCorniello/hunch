@@ -262,10 +262,16 @@ func cmdClientExport() error {
 			return fmt.Errorf("parse last_seen for %q: %w", t.Next, err)
 		}
 		seed.Transitions = append(seed.Transitions, graph.Transition{
-			State:    t.State,
-			Next:     t.Next,
-			Count:    t.Count,
-			LastSeen: lastSeen,
+			State:        t.State,
+			Next:         t.Next,
+			Count:        t.Count,
+			LastSeen:     lastSeen,
+			CWDs:         t.CWDs,
+			NextSuccess:  t.NextSuccess,
+			NextFailure:  t.NextFailure,
+			PriorSuccess: t.PriorSuccess,
+			PriorFailure: t.PriorFailure,
+			Accepted:     t.Accepted,
 		})
 	}
 
