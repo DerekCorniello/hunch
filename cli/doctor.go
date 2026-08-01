@@ -165,32 +165,27 @@ func daemonStats() []check {
 }
 
 // checkShellIntegration verifies both halves of the install: that the
-// integration script exists, and that the shell's rc file actually sources it.
-// A present script that nothing sources is the most common silent failure.
+// integration script exists, and that .zshrc actually sources it. A present
+// script that nothing sources is the most common silent failure.
 func checkShellIntegration() []check {
-	shell := detectShell()
-	if shell == "" {
-		return []check{{label: "shell integration", status: statusInfo, detail: "unknown (SHELL not set)"}}
-	}
-
-	integrationPath, err := findIntegration(shell)
+	integrationPath, err := findIntegration()
 	if err != nil {
-		return []check{{label: "shell integration", status: statusProblem, detail: fmt.Sprintf("not found (run: hunch init %s)", shell)}}
+		return []check{{label: "shell integration", status: statusProblem, detail: "not found (run: hunch init)"}}
 	}
 	if _, err := os.Stat(integrationPath); os.IsNotExist(err) {
-		return []check{{label: "shell integration", status: statusProblem, detail: fmt.Sprintf("file missing (run: hunch init %s)", shell)}}
+		return []check{{label: "shell integration", status: statusProblem, detail: "file missing (run: hunch init)"}}
 	}
 
 	checks := []check{{
 		label:  "shell integration",
 		status: statusOK,
-		detail: fmt.Sprintf("OK (%s, %s)", shell, integrationPath),
+		detail: fmt.Sprintf("OK (%s)", integrationPath),
 	}}
-	return append(checks, checkRcFile(shell))
+	return append(checks, checkRcFile())
 }
 
-func checkRcFile(shell string) check {
-	rcPath := rcFilePathShell(shell)
+func checkRcFile() check {
+	rcPath := zshrcPath()
 	data, err := os.ReadFile(rcPath)
 	if err != nil {
 		return check{label: "rc file", status: statusProblem, indent: true, detail: fmt.Sprintf("WARNING (%s not found)", rcPath)}

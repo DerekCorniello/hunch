@@ -9,7 +9,7 @@ import (
 	"github.com/DerekCorniello/hunch/cli"
 )
 
-//go:embed integrations/zsh/hunch.zsh integrations/bash/hunch.bash integrations/fish/hunch.fish integrations/powershell/hunch.ps1
+//go:embed integrations/zsh/hunch.zsh
 var embeddedIntegrations embed.FS
 
 func main() {

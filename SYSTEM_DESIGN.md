@@ -9,7 +9,7 @@ Hunch is a lightweight statistical system that learns shell workflows from user 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                      Shell Process                       │
-│  zsh / bash / fish / powershell                          │
+│  zsh                                                      │
 └───────────────────────────────┬─────────────────────────┘
                                 │
                     ┌───────────▼───────────┐
@@ -260,30 +260,22 @@ Each integration is a thin adapter that:
 
 #### zsh Integration
 
-- **Hook:** `zle-line-pre-redraw` for predictions, `precmd` for recording
-- **Rendering:** Uses `POSTDISPLAY` for ghost text with `region_highlight` for styling
-- **Accept:** Right arrow or End key
-- **Compatibility:** Works alongside `zsh-autosuggestions` (uses memo-tagged highlights)
-- **History:** Reads from `$HISTCMD` for accurate command capture
+zsh is the only supported shell integration. Inline ghost text needs a
+per-keystroke hook plus a place to draw text the shell won't try to execute,
+and zsh's ZLE is the only shell scripting layer that exposes both (see
+README.md's "Shell support" section for why bash/fish/PowerShell don't have
+this today).
 
-#### bash Integration
-
-- **Hook:** `PROMPT_COMMAND` for recording, `bind -x` for Tab accept
-- **Rendering:** Tab inserts suggestion into `READLINE_LINE`
-- **Accept:** Tab key
-
-#### fish Integration
-
-- **Hook:** `fish_postexec` for recording, `commandline` manipulation for predictions
-- **Rendering:** Uses `commandline` to append ghost text
-- **Accept:** Right arrow or End key
-
-#### PowerShell Integration
-
-- **Requirements:** PowerShell 7.4+, PSReadLine 2.3+
-- **Hook:** Custom `Invoke-HunchRecord` via key binding
-- **Rendering:** PSReadLine `Replace` API (native prediction disabled)
-- **Accept:** Right arrow or End key
+- **Hook:** `add-zle-hook-widget` composes with other plugins across
+  `line-init` / `line-finish` / `zle-line-pre-redraw` (falls back to chaining
+  a single predecessor widget on zsh < 5.3)
+- **Rendering:** `POSTDISPLAY` for ghost text, driven by a persistent `serve`
+  coprocess so predictions don't spawn a process per keystroke
+- **Accept:** Right arrow or End key; Alt-n / Alt-p cycle ranked candidates
+- **Compatibility:** Composes with `zsh-autosuggestions` and similar plugins
+  regardless of load order
+- **Recording:** Captures exit code, CWD, and the previously-shown suggestion
+  (for acceptance detection) in `precmd`
 
 ---
 

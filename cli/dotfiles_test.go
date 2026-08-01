@@ -7,28 +7,10 @@ import (
 	"testing"
 )
 
-func TestDetectShell(t *testing.T) {
-	cases := map[string]string{
-		"/bin/zsh":                  "zsh",
-		"/usr/bin/bash":             "bash",
-		"/usr/local/bin/fish":       "fish",
-		"/usr/bin/pwsh":             "powershell",
-		"/opt/microsoft/powershell": "powershell",
-		"/bin/tcsh":                 "", // unsupported shell
-	}
-	for shellPath, want := range cases {
-		t.Setenv("SHELL", shellPath)
-		if got := detectShell(); got != want {
-			t.Errorf("detectShell() with SHELL=%q = %q, want %q", shellPath, got, want)
-		}
-	}
-}
-
 func TestHasHunchSourceLine(t *testing.T) {
 	yes := []string{
 		"source /home/u/hunch/integrations/zsh/hunch.zsh",
-		"  . /home/u/hunch/integrations/bash/hunch.bash",
-		"Import-Module /opt/hunch/integrations/powershell/hunch.ps1",
+		"  . /home/u/hunch/integrations/zsh/hunch.zsh",
 		"alias ls='ls --color'\nsource /x/hunch.zsh\n",
 	}
 	for _, c := range yes {
@@ -86,8 +68,8 @@ func TestRemoveRcLineBlock(t *testing.T) {
 
 func TestRemoveRcLineStandalone(t *testing.T) {
 	dir := t.TempDir()
-	rc := filepath.Join(dir, ".bashrc")
-	content := "export A=1\n. /home/u/hunch/integrations/bash/hunch.bash\nexport B=2\n"
+	rc := filepath.Join(dir, ".zshrc")
+	content := "export A=1\n. /home/u/hunch/integrations/zsh/hunch.zsh\nexport B=2\n"
 	if err := os.WriteFile(rc, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}

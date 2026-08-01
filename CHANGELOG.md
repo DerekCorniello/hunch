@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.0 - 2026-08-01
+
 ### Fixed
 - `hunch reset` works whether or not a daemon is running, and never starts one.
   With a daemon up it resets over IPC so the in-memory graph is cleared too;
@@ -69,10 +71,31 @@
 - `min_confidence` (`HUNCH_MIN_CONFIDENCE`, default `0.20`) sets the score a
   generalized match must reach before it is shown. Exact-context matches are
   always shown. Set it to `1` to only ever show exact matches.
+- `hunch why` (and `hunch client explain`) explains the scoring behind a
+  suggestion instead of asking you to trust it: which fallback context
+  answered (exact directory, ancestor directory, no directory, or a shorter
+  history window) and, per candidate, the decay weight, CWD affinity,
+  prior-outcome affinity, acceptance rate, and failure rate that produced its
+  score. `hunch init` now also prints a self-test accuracy summary
+  (`hunch eval`, run against the history you just imported) right after
+  import, so "it learns your workflows" is a number you watch get computed
+  rather than a claim you take on faith.
 
 On a 10k-command history this moves top-1 from 18.5% to 23.1% and top-3 from
 24.0% to 30.8%, against a 9.0% baseline. Suggestions are offered 78.7% of the
 time rather than 55.8%. The graph grows about 1.6x.
+
+### Removed
+- bash, fish, and PowerShell integrations. They only ever got a post-command
+  hint line (no accept keystroke, no cycling, top-1 only) since none of those
+  shells give a third party the primitives zsh's ZLE does for real inline
+  ghost text, and they had zero automated regression coverage next to zsh's
+  375 lines of it. Rather than ship three thinner, under-tested experiences
+  behind the same demo, hunch is zsh-only for now; see README.md's "Shell
+  support" section for what each shell would need to get a first-class
+  integration. `hunch init`, `hunch import-history`, and `hunch eval` no
+  longer take a `<shell>` argument as a result - they operate on zsh
+  (`~/.zsh_history`) directly.
 
 ## v0.1.2 - 2026-07-18
 

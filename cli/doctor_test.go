@@ -96,7 +96,7 @@ func TestCheckRcFile(t *testing.T) {
 		if err := os.WriteFile(rc, []byte("source /opt/hunch/hunch.zsh\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if got := checkRcFile("zsh"); got.status != statusOK {
+		if got := checkRcFile(); got.status != statusOK {
 			t.Errorf("status = %v, want statusOK", got.status)
 		}
 	})
@@ -107,14 +107,14 @@ func TestCheckRcFile(t *testing.T) {
 		if err := os.WriteFile(rc, []byte("export EDITOR=vim\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if got := checkRcFile("zsh"); got.status != statusProblem {
+		if got := checkRcFile(); got.status != statusProblem {
 			t.Errorf("status = %v, want statusProblem", got.status)
 		}
 	})
 
 	t.Run("missing rc file", func(t *testing.T) {
 		withTempHome(t)
-		got := checkRcFile("zsh")
+		got := checkRcFile()
 		if got.status != statusProblem {
 			t.Errorf("status = %v, want statusProblem", got.status)
 		}

@@ -58,11 +58,9 @@ func cmdUninstall(skipConfirm bool) error {
 				removed++
 			}
 		}
-		for _, shell := range shells {
-			p := filepath.Join(hunchData, "integrations", shell, "hunch."+shellFileExt(shell))
-			if err := os.Remove(p); err == nil {
-				removed++
-			}
+		p := filepath.Join(hunchData, "integrations", "zsh", "hunch.zsh")
+		if err := os.Remove(p); err == nil {
+			removed++
 		}
 		os.Remove(filepath.Join(hunchData, "integrations"))
 		os.Remove(hunchData)
@@ -77,13 +75,11 @@ func cmdUninstall(skipConfirm bool) error {
 		os.Remove(filepath.Join(cfgDir, "hunch"))
 	}
 
-	for _, shell := range shells {
-		rcPath := rcFilePathShell(shell)
-		if changed, err := removeRcLine(rcPath); err != nil {
-			fmt.Fprintf(os.Stderr, "  warning: clean %s: %v\n", rcPath, err)
-		} else if changed {
-			removed++
-		}
+	rcPath := zshrcPath()
+	if changed, err := removeRcLine(rcPath); err != nil {
+		fmt.Fprintf(os.Stderr, "  warning: clean %s: %v\n", rcPath, err)
+	} else if changed {
+		removed++
 	}
 
 	if removed > 0 {

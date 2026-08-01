@@ -44,6 +44,9 @@ func (d *daemon) handleConn(conn net.Conn) {
 	case "predict":
 		d.log.Debug("predict", "state", req.State, "prefix", req.Prefix)
 		d.handlePredict(conn, req)
+	case "explain":
+		d.log.Debug("explain", "state", req.State)
+		d.handleExplain(conn, req)
 	case "reset":
 		d.handleReset(conn)
 	case "export":
@@ -233,6 +236,56 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	d.respondSuggestions(conn, suggestions)
 }
 
+// handleExplain answers "why did/didn't I get that suggestion": it runs the
+// same fallback ladder as predict, then reports which rung answered and the
+// per-candidate scoring breakdown at that rung, instead of collapsing
+// everything into a single opaque score.
+func (d *daemon) handleExplain(conn net.Conn, req ipc.Request) {
+	at, err := requestTime(req.At)
+	if err != nil {
+		d.respondError(conn, "bad at: %s", err)
+		return
+	}
+
+	prev := make([]types.Command, len(req.State))
+	for i, raw := range req.State {
+		prev[i] = types.Command{Template: normalize.Normalize(raw, d.parents)}
+	}
+
+	cwd := req.CWD
+	if cwd != "" {
+		cwd = filepath.Clean(cwd)
+	}
+
+	fr := d.predictFallback(prev, cwd, types.Outcome(req.PriorOutcome), req.Prefix, at)
+
+	stateTemplates := make([]string, 0, len(fr.state))
+	for _, cmd := range fr.state {
+		if cmd.Template != "" {
+			stateTemplates = append(stateTemplates, cmd.Template)
+		}
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 5
+	}
+	breakdown := d.pred.Load().Explain(types.State{
+		Previous:     fr.state,
+		CWD:          fr.cwd,
+		PriorOutcome: types.Outcome(req.PriorOutcome),
+	}, at, limit)
+
+	d.respondJSON(conn, "explain", ipc.ExplainResponse{
+		Level:         fr.level,
+		State:         stateTemplates,
+		CWD:           fr.cwd,
+		MinConfidence: d.opts.MinConfidence,
+		MinCount:      d.opts.MinCount,
+		Breakdown:     ipc.BreakdownFromPredict(breakdown),
+	})
+}
+
 // withMinCount drops suggestions backed by too few observations.
 //
 // This is deliberately applied to every level, including the exact-context
@@ -254,7 +307,22 @@ func withMinCount(suggestions []types.Suggestion, minCount int) []types.Suggesti
 	return kept
 }
 
-// predictWithFallback queries the predictor through progressively more general
+// fallbackResult is one level of predictFallback's ladder: the suggestions it
+// produced (if any) plus enough context to explain how it got there.
+type fallbackResult struct {
+	suggestions []types.Suggestion
+	level       string          // human-readable label for which rung answered
+	state       []types.Command // the (possibly trimmed) history actually queried
+	cwd         string          // the (possibly generalized) directory actually queried
+}
+
+// predictWithFallback is the suggestion-only view of predictFallback, used by
+// the predict op where the fallback bookkeeping is not needed.
+func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior types.Outcome, prefix string, at time.Time) []types.Suggestion {
+	return d.predictFallback(prev, cwd, prior, prefix, at).suggestions
+}
+
+// predictFallback queries the predictor through progressively more general
 // state keys, stopping at the first level that yields a usable answer.
 //
 // The levels trade specificity for coverage: an exact directory match is the
@@ -268,7 +336,7 @@ func withMinCount(suggestions []types.Suggestion, minCount int) []types.Suggesti
 // Only an unfiltered query walks the ladder; when the caller supplied a
 // prefix, a broadened match would suggest commands unrelated to what they are
 // typing, so level 1 stands alone.
-func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior types.Outcome, prefix string, at time.Time) []types.Suggestion {
+func (d *daemon) predictFallback(prev []types.Command, cwd string, prior types.Outcome, prefix string, at time.Time) fallbackResult {
 	query := func(previous []types.Command, dir string) []types.Suggestion {
 		return withMinCount(d.pred.Load().Predict(types.State{
 			Previous:     previous,
@@ -284,7 +352,7 @@ func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior typ
 	// Level 1: this exact directory, as learned from live sessions.
 	suggestions := query(prev, cwd)
 	if len(suggestions) > 0 || prefix != "" {
-		return suggestions
+		return fallbackResult{suggestions: suggestions, level: "exact directory", state: prev, cwd: cwd}
 	}
 
 	// Level 2: ancestor directories, so a workflow learned in ~/project
@@ -292,7 +360,7 @@ func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior typ
 	if cwd != "" {
 		for parent := filepath.Dir(cwd); parent != cwd && parent != filepath.Dir(parent); parent = filepath.Dir(parent) {
 			if s := query(prev, parent); confident(s) {
-				return s
+				return fallbackResult{suggestions: s, level: "ancestor directory", state: prev, cwd: parent}
 			}
 		}
 	}
@@ -300,16 +368,21 @@ func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior typ
 	// Level 3: no directory at all, which is how imported shell history and
 	// anything recorded before CWD tracking is keyed.
 	if s := query(prev, ""); confident(s) {
-		return s
+		return fallbackResult{suggestions: s, level: "no directory", state: prev, cwd: ""}
 	}
 
 	// Level 4: progressively shorter history windows.
 	for trim := 1; trim <= len(prev); trim++ {
 		if s := query(prev[trim:], ""); confident(s) {
-			return s
+			return fallbackResult{
+				suggestions: s,
+				level:       fmt.Sprintf("shorter history (dropped %d most recent)", trim),
+				state:       prev[trim:],
+				cwd:         "",
+			}
 		}
 	}
-	return nil
+	return fallbackResult{level: "no match at any level", state: prev, cwd: cwd}
 }
 
 func (d *daemon) handleReset(conn net.Conn) {

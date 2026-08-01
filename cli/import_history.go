@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -22,24 +21,17 @@ import (
 )
 
 func cmdImportHistory(args []string) error {
-	var shell, path string
+	var path string
 	var threads int
 
 	fs := flag.NewFlagSet("hunch import-history", flag.ContinueOnError)
-	fs.StringVar(&path, "path", "", "history file path (overrides default)")
+	fs.StringVar(&path, "path", "", "history file path (overrides default ~/.zsh_history)")
 	fs.IntVar(&threads, "threads", runtime.NumCPU(), "number of normalize threads")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: hunch import-history <shell> [--path <file>] [--threads N]\n\nshells: zsh, bash, fish, powershell")
-	}
-	shell = fs.Arg(0)
-	if !validShell(shell) {
-		return fmt.Errorf("unknown shell: %q\n\nsupported shells: zsh, bash, fish, powershell", shell)
-	}
 
-	historyPath, _, err := resolveHistoryPath(shell, path)
+	historyPath, _, err := resolveHistoryPath(path)
 	if err != nil {
 		return err
 	}
@@ -48,12 +40,14 @@ func cmdImportHistory(args []string) error {
 		return fmt.Errorf("daemon must be running to import history: %w", err)
 	}
 
-	return runImport(shell, historyPath, threads, func(msg string) {
+	return runImport(historyPath, threads, func(msg string) {
 		fmt.Print(msg)
 	})
 }
 
-func resolveHistoryPath(shell, override string) (string, int, error) {
+// resolveHistoryPath resolves the zsh history file to import: an explicit
+// override if given, otherwise ~/.zsh_history.
+func resolveHistoryPath(override string) (string, int, error) {
 	if override != "" {
 		_, err := os.Stat(override)
 		if err != nil {
@@ -62,23 +56,8 @@ func resolveHistoryPath(shell, override string) (string, int, error) {
 		return override, countLines(override), nil
 	}
 
-	switch shell {
-	case "zsh":
-		path := resolveHome("~/.zsh_history")
-		c := countLines(path)
-		return path, c, nil
-	case "bash":
-		path := resolveHome("~/.bash_history")
-		c := countLines(path)
-		return path, c, nil
-	case "fish":
-		path := resolveHome("~/.local/share/fish/fish_history")
-		c := countLines(path)
-		return path, c, nil
-	case "powershell":
-		return "", -1, nil
-	}
-	return "", 0, fmt.Errorf("unknown shell: %s", shell)
+	path := resolveHome("~/.zsh_history")
+	return path, countLines(path), nil
 }
 
 // maxHistoryLine bounds a single history line. The default bufio.Scanner
@@ -122,10 +101,10 @@ func ensureDaemonRunning() error {
 	return cmdDaemonStart()
 }
 
-func runImport(shell, path string, threads int, progress func(string)) error {
-	progress(fmt.Sprintf("Parsing %s history", shell))
+func runImport(path string, threads int, progress func(string)) error {
+	progress("Parsing zsh history")
 
-	rawCmds, err := parseHistory(shell, path)
+	rawCmds, err := parseZshHistory(path)
 	if err != nil {
 		return fmt.Errorf("parse history: %w", err)
 	}
@@ -320,73 +299,6 @@ func stripZshMeta(line string) string {
 		return rest[j+1:]
 	}
 	return ""
-}
-
-func parseBashHistory(path string) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var cmds []string
-	sc := newHistoryScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		cmds = append(cmds, line)
-	}
-	return cmds, sc.Err()
-}
-
-func parseFishHistory(path string) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var cmds []string
-	sc := newHistoryScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if after, ok := strings.CutPrefix(line, "- cmd:"); ok {
-			cmd := strings.TrimSpace(after)
-			if cmd != "" {
-				cmds = append(cmds, cmd)
-			}
-		}
-	}
-	return cmds, sc.Err()
-}
-
-func parsePowerShellHistory() ([]string, error) {
-	psCmd := `Get-History | ForEach-Object { $_.CommandLine }`
-	cmd := exec.Command("pwsh", "-NoLogo", "-NoProfile", "-Command", psCmd)
-	out, err := cmd.Output()
-	if err != nil {
-		if _, ok := err.(*exec.ExitError); ok || errors.Is(err, exec.ErrNotFound) {
-			return nil, fmt.Errorf("pwsh not found; install PowerShell 7.4+")
-		}
-		return nil, err
-	}
-
-	return parsePowerShellOutput(strings.NewReader(string(out)))
-}
-
-// parsePowerShellOutput reads one command per line from Get-History output.
-func parsePowerShellOutput(r io.Reader) ([]string, error) {
-	var cmds []string
-	sc := newHistoryScanner(r)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line != "" {
-			cmds = append(cmds, line)
-		}
-	}
-	return cmds, sc.Err()
 }
 
 func isTerminal() bool {

@@ -30,6 +30,8 @@ func Run(args []string) error {
 		return cmdImportHistory(args[1:])
 	case "eval":
 		return cmdEval(args[1:])
+	case "why":
+		return cmdWhy(args[1:])
 	case "uninstall":
 		skipConfirm := false
 		for _, arg := range args[1:] {
@@ -65,18 +67,21 @@ hunch learns your command history and suggests your next command as you type.
 Set it up once with 'hunch init'; after that it runs in the background on its
 own and you never need to touch it.
 
+hunch currently supports zsh only; see README for why.
+
 Commands:
-  init [shell]         Install the shell integration
-    --auto             Append the source line to your rc file for you
-  doctor               Check installation and daemon health
-  update               Update to the latest release
-  uninstall [--yes]    Remove hunch and all its data
-  import-history <sh>  Seed predictions from your existing shell history
-  stats                Show what hunch has learned so far
-  eval <shell>         Measure prediction accuracy against your own history
-  reset                Forget everything and start over
-  daemon <action>      Manage the background daemon (run|start|stop|status)
-  version              Print the version
+  init                  Install the zsh integration
+    --auto              Append the source line to .zshrc for you
+  doctor                Check installation and daemon health
+  update                Update to the latest release
+  uninstall [--yes]     Remove hunch and all its data
+  import-history        Seed predictions from your existing zsh history
+  stats                 Show what hunch has learned so far
+  eval                  Measure prediction accuracy against your own history
+  why                   Explain the scoring behind the current suggestion
+  reset                 Forget everything and start over
+  daemon <action>       Manage the background daemon (run|start|stop|status)
+  version               Print the version
 
 Flags:
   --version, -v        Print version

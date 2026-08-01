@@ -97,135 +97,13 @@ func TestParseZshHistory_FileNotFound(t *testing.T) {
 	}
 }
 
-func TestParseBashHistory(t *testing.T) {
-	content := "git add .\n#1740000000\ngit commit -m init\ngit push origin main\n"
-	path := filepath.Join(t.TempDir(), "bash_history")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmds, err := parseBashHistory(path)
-	if err != nil {
-		t.Fatalf("parseBashHistory: %v", err)
-	}
-	if len(cmds) != 3 {
-		t.Fatalf("expected 3 commands, got %d", len(cmds))
-	}
-	if cmds[0] != "git add ." {
-		t.Errorf("cmds[0] = %q, want %q", cmds[0], "git add .")
-	}
-	if cmds[2] != "git push origin main" {
-		t.Errorf("cmds[2] = %q, want %q", cmds[2], "git push origin main")
-	}
-}
-
-func TestParseBashHistory_EmptyLines(t *testing.T) {
-	content := "git add .\n\n#comment\n\ngit commit\n"
-	path := filepath.Join(t.TempDir(), "bash_history")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmds, err := parseBashHistory(path)
-	if err != nil {
-		t.Fatalf("parseBashHistory: %v", err)
-	}
-	if len(cmds) != 2 {
-		t.Fatalf("expected 2 commands, got %d", len(cmds))
-	}
-}
-
-func TestParseBashHistory_Empty(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bash_history")
-	if err := os.WriteFile(path, []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmds, err := parseBashHistory(path)
-	if err != nil {
-		t.Fatalf("parseBashHistory: %v", err)
-	}
-	if len(cmds) != 0 {
-		t.Errorf("expected 0 commands, got %d", len(cmds))
-	}
-}
-
-func TestParseFishHistory(t *testing.T) {
-	content := "- cmd: git add .\n  when: 1740000000\n- cmd: git commit -m init\n  when: 1740000001\n- cmd: git push origin main\n  when: 1740000002\n"
-	path := filepath.Join(t.TempDir(), "fish_history")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmds, err := parseFishHistory(path)
-	if err != nil {
-		t.Fatalf("parseFishHistory: %v", err)
-	}
-	if len(cmds) != 3 {
-		t.Fatalf("expected 3 commands, got %d", len(cmds))
-	}
-	if cmds[0] != "git add ." {
-		t.Errorf("cmds[0] = %q, want %q", cmds[0], "git add .")
-	}
-}
-
-func TestParseFishHistory_SkipsNonCmdLines(t *testing.T) {
-	content := "- cmd: ls\n  when: 1740000000\n  path: /tmp\n- cmd: pwd\n  when: 1740000001\n"
-	path := filepath.Join(t.TempDir(), "fish_history")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmds, err := parseFishHistory(path)
-	if err != nil {
-		t.Fatalf("parseFishHistory: %v", err)
-	}
-	if len(cmds) != 2 {
-		t.Fatalf("expected 2 commands, got %d", len(cmds))
-	}
-}
-
-func TestParseFishHistory_EmptyCmd(t *testing.T) {
-	content := "- cmd: \n  when: 1740000000\n- cmd: ls\n  when: 1740000001\n"
-	path := filepath.Join(t.TempDir(), "fish_history")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmds, err := parseFishHistory(path)
-	if err != nil {
-		t.Fatalf("parseFishHistory: %v", err)
-	}
-	if len(cmds) != 1 {
-		t.Fatalf("expected 1 command (empty skipped), got %d", len(cmds))
-	}
-	if cmds[0] != "ls" {
-		t.Errorf("cmds[0] = %q, want %q", cmds[0], "ls")
-	}
-}
-
-func TestParseFishHistory_Empty(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "fish_history")
-	if err := os.WriteFile(path, []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cmds, err := parseFishHistory(path)
-	if err != nil {
-		t.Fatalf("parseFishHistory: %v", err)
-	}
-	if len(cmds) != 0 {
-		t.Errorf("expected 0 commands, got %d", len(cmds))
-	}
-}
-
 func TestResolveHistoryPath(t *testing.T) {
 	t.Run("override_exists", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "custom_history")
 		if err := os.WriteFile(path, []byte("line1\nline2\nline3\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		resolved, count, err := resolveHistoryPath("zsh", path)
+		resolved, count, err := resolveHistoryPath(path)
 		if err != nil {
 			t.Fatalf("resolveHistoryPath: %v", err)
 		}
@@ -238,51 +116,23 @@ func TestResolveHistoryPath(t *testing.T) {
 	})
 
 	t.Run("override_not_found", func(t *testing.T) {
-		_, _, err := resolveHistoryPath("zsh", "/nonexistent/history")
+		_, _, err := resolveHistoryPath("/nonexistent/history")
 		if err == nil {
 			t.Fatal("expected error for nonexistent override path")
 		}
 	})
 
-	t.Run("unknown_shell", func(t *testing.T) {
-		_, _, err := resolveHistoryPath("unknown", "")
-		if err == nil {
-			t.Fatal("expected error for unknown shell")
-		}
-	})
-
-	t.Run("powershell_no_path", func(t *testing.T) {
-		path, count, err := resolveHistoryPath("powershell", "")
+	t.Run("default_path_is_zsh_history", func(t *testing.T) {
+		home := withTempHome(t)
+		path, _, err := resolveHistoryPath("")
 		if err != nil {
-			t.Fatalf("resolveHistoryPath(powershell): %v", err)
+			t.Fatalf("resolveHistoryPath(\"\"): %v", err)
 		}
-		if path != "" {
-			t.Errorf("path = %q, want empty", path)
-		}
-		if count != -1 {
-			t.Errorf("count = %d, want -1", count)
+		want := filepath.Join(home, ".zsh_history")
+		if path != want {
+			t.Errorf("path = %q, want %q", path, want)
 		}
 	})
-}
-
-func TestResolveHistoryPath_ShellDefaults(t *testing.T) {
-	// Test that known shells return a non-empty path without override.
-	// These will likely fail because the files don't exist, but the
-	// function should still return the path with count=0.
-	for _, shell := range []string{"zsh", "bash", "fish"} {
-		t.Run(shell, func(t *testing.T) {
-			path, count, err := resolveHistoryPath(shell, "")
-			if err != nil {
-				t.Fatalf("resolveHistoryPath(%q): %v", shell, err)
-			}
-			if path == "" {
-				t.Errorf("expected non-empty path for %s", shell)
-			}
-			if count != 0 {
-				t.Logf("count = %d (file may or may not exist)", count)
-			}
-		})
-	}
 }
 
 func TestCountLines(t *testing.T) {
@@ -456,53 +306,5 @@ func TestSendSeed_BuildsValidSeed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "connect to daemon") {
 		t.Errorf("error = %q, want 'connect to daemon'", err)
-	}
-}
-
-func TestParsePowerShellOutput(t *testing.T) {
-	tests := []struct {
-		name string
-		out  string
-		want []string
-	}{
-		{
-			name: "commands",
-			out:  "git status\ngit add .\ngit commit -m init\n",
-			want: []string{"git status", "git add .", "git commit -m init"},
-		},
-		{
-			name: "skips_blank_and_whitespace_lines",
-			out:  "git status\n\n   \ngit push\n",
-			want: []string{"git status", "git push"},
-		},
-		{
-			name: "trims_surrounding_whitespace",
-			out:  "  git status  \n\tgit push\t\n",
-			want: []string{"git status", "git push"},
-		},
-		{
-			name: "crlf_line_endings",
-			out:  "git status\r\ngit push\r\n",
-			want: []string{"git status", "git push"},
-		},
-		{name: "empty", out: "", want: nil},
-		{name: "only_blank_lines", out: "\n\n\n", want: nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parsePowerShellOutput(strings.NewReader(tt.out))
-			if err != nil {
-				t.Fatalf("parsePowerShellOutput: %v", err)
-			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("got %d commands %q, want %d %q", len(got), got, len(tt.want), tt.want)
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("command %d = %q, want %q", i, got[i], tt.want[i])
-				}
-			}
-		})
 	}
 }

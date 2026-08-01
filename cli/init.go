@@ -9,27 +9,15 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/DerekCorniello/hunch/core/eval"
 	"github.com/DerekCorniello/hunch/daemon"
 )
 
-var shells = []string{"zsh", "bash", "fish", "powershell"}
-
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("hunch init", flag.ContinueOnError)
-	autoAppend := fs.Bool("auto", false, "automatically append source line to rc file")
+	autoAppend := fs.Bool("auto", false, "automatically append source line to .zshrc")
 	if err := fs.Parse(args); err != nil {
 		return err
-	}
-
-	shell := ""
-	if fs.NArg() > 0 {
-		shell = strings.ToLower(fs.Arg(0))
-	}
-	if shell == "" {
-		shell = detectShell()
-	}
-	if !validShell(shell) {
-		return fmt.Errorf("usage: hunch init <shell>\n\nshells: zsh, bash, fish, powershell")
 	}
 
 	if err := EnsureIntegrations(); err != nil {
@@ -39,7 +27,7 @@ func cmdInit(args []string) error {
 		return err
 	}
 
-	integrationPath, err := findIntegration(shell)
+	integrationPath, err := findIntegration()
 	if err != nil {
 		return err
 	}
@@ -48,17 +36,17 @@ func cmdInit(args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: could not start daemon: %v\n", err)
 	}
 
-	offerHistoryImport(shell)
+	offerHistoryImport()
 
+	rcFile := zshrcPath()
 	if *autoAppend {
-		if err := appendToRc(shell, integrationPath); err != nil {
+		if err := appendToRc(integrationPath); err != nil {
 			return fmt.Errorf("auto-append: %w", err)
 		}
-		rcFile := rcFilePathShell(shell)
 		fmt.Printf("Added source line to %s\n", rcFile)
 		fmt.Printf("Restart your shell or run: source %s\n", rcFile)
 	} else {
-		fmt.Printf("Add this line to your %s, then restart your shell or run source %s:\n\n", rcFilePathShell(shell), rcFilePathShell(shell))
+		fmt.Printf("Add this line to your %s, then restart your shell or run source %s:\n\n", rcFile, rcFile)
 		fmt.Printf("    source %s\n", integrationPath)
 	}
 
@@ -66,25 +54,8 @@ func cmdInit(args []string) error {
 	return nil
 }
 
-func detectShell() string {
-	shellPath := os.Getenv("SHELL")
-	if shellPath == "" {
-		return detectShellFallback()
-	}
-	base := filepath.Base(shellPath)
-	for _, s := range shells {
-		if s == base {
-			return s
-		}
-	}
-	if base == "pwsh" || base == "powershell" {
-		return "powershell"
-	}
-	return ""
-}
-
-func appendToRc(shell, sourceLine string) error {
-	rcPath := rcFilePathShell(shell)
+func appendToRc(sourceLine string) error {
+	rcPath := zshrcPath()
 
 	// Get the directory containing the hunch binary
 	execPath, err := os.Executable()
@@ -129,26 +100,13 @@ func appendToRc(shell, sourceLine string) error {
 	return os.Rename(tmpPath, rcPath)
 }
 
-func rcFilePathShell(shell string) string {
+// zshrcPath returns the path to the user's .zshrc.
+func zshrcPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".hunchrc"
+		return ".zshrc"
 	}
-	switch shell {
-	case "zsh":
-		return filepath.Join(home, ".zshrc")
-	case "bash":
-		return filepath.Join(home, ".bashrc")
-	case "fish":
-		return filepath.Join(home, ".config", "fish", "config.fish")
-	case "powershell":
-		if runtime.GOOS == "windows" {
-			return filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1")
-		}
-		return filepath.Join(home, ".config", "powershell", "Microsoft.PowerShell_profile.ps1")
-	default:
-		return filepath.Join(home, ".profile")
-	}
+	return filepath.Join(home, ".zshrc")
 }
 
 func warnPath() {
@@ -181,12 +139,15 @@ func warnPath() {
 	fmt.Fprintln(os.Stderr)
 }
 
-func offerHistoryImport(shell string) {
+// offerHistoryImport prompts to import ~/.zsh_history and, on completion,
+// prints a self-test summary computed from that same history so the user
+// sees real accuracy numbers before they've decided whether to trust hunch.
+func offerHistoryImport() {
 	if !isTerminal() {
 		return
 	}
 
-	historyPath, cmdCount, err := resolveHistoryPath(shell, "")
+	historyPath, cmdCount, err := resolveHistoryPath("")
 	if err != nil || cmdCount <= 0 || historyPath == "" {
 		return
 	}
@@ -202,25 +163,58 @@ func offerHistoryImport(shell string) {
 	_, _ = fmt.Scanln(&answer)
 	answer = strings.TrimSpace(strings.ToLower(answer))
 
-	if answer == "" || answer == "y" || answer == "yes" {
+	if answer != "" && answer != "y" && answer != "yes" {
 		fmt.Fprintln(os.Stderr)
-		threads := runtime.NumCPU()
-		if err := runImport(shell, historyPath, threads, func(msg string) {
-			fmt.Fprint(os.Stderr, msg)
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: import failed: %v\n", err)
-		}
-	} else {
-		fmt.Fprintln(os.Stderr)
+		return
 	}
+
+	fmt.Fprintln(os.Stderr)
+	threads := runtime.NumCPU()
+	if err := runImport(historyPath, threads, func(msg string) {
+		fmt.Fprint(os.Stderr, msg)
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: import failed: %v\n", err)
+		return
+	}
+
+	printImportEvalSummary(historyPath)
 }
 
-func validShell(shell string) bool {
-	switch shell {
-	case "zsh", "bash", "fish", "powershell":
-		return true
+// printImportEvalSummary replays the just-imported history through the same
+// scoring the daemon uses and prints the resulting accuracy, so "it learns
+// your workflows" is a number the user watched get computed from their own
+// data rather than a claim they have to take on faith.
+func printImportEvalSummary(historyPath string) {
+	rawCmds, err := parseZshHistory(historyPath)
+	if err != nil || len(rawCmds) == 0 {
+		return
 	}
-	return false
+
+	opts := eval.DefaultOptions()
+	if len(rawCmds) <= opts.Warmup {
+		// Too little history for a meaningful self-test; the import itself
+		// already succeeded, so say nothing rather than print a noisy 0%.
+		return
+	}
+
+	templates, err := normalizeConcurrent(rawCmds, runtime.NumCPU())
+	if err != nil {
+		return
+	}
+	commands := make([]eval.Command, len(templates))
+	for i, tmpl := range templates {
+		commands[i] = eval.Command{Template: tmpl}
+	}
+
+	r := eval.Run(commands, opts)
+	if r.Scored == 0 {
+		return
+	}
+
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "Self-test on your history: top-1 %.0f%%, top-3 %.0f%% (vs. %.0f%% always guessing your most frequent command).\n",
+		100*r.Rate(r.Top1), 100*r.Rate(r.Top3), 100*r.Rate(r.BaselineTop1))
+	fmt.Fprintln(os.Stderr, "Run 'hunch eval' any time to recheck this against your live history.")
 }
 
 func EnsureIntegrations() error {
@@ -234,34 +228,29 @@ func EnsureIntegrations() error {
 	}
 	destDir := filepath.Join(dataDir, "hunch", "integrations")
 
-	for _, shell := range shells {
-		srcPath := filepath.Join(shell, "hunch."+shellFileExt(shell))
-		destPath := filepath.Join(destDir, srcPath)
+	srcPath := filepath.Join("zsh", "hunch.zsh")
+	destPath := filepath.Join(destDir, srcPath)
 
-		src, err := IntegrationFS.Open(srcPath)
-		if err != nil {
-			return fmt.Errorf("open embedded %s: %w", srcPath, err)
-		}
-
-		embedded, err := io.ReadAll(src)
-		src.Close()
-		if err != nil {
-			return fmt.Errorf("read embedded %s: %w", srcPath, err)
-		}
-
-		existing, err := os.ReadFile(destPath)
-		if err == nil && string(existing) == string(embedded) {
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("create dir for %s: %w", destPath, err)
-		}
-		if err := os.WriteFile(destPath, embedded, 0644); err != nil {
-			return fmt.Errorf("write %s: %w", destPath, err)
-		}
+	src, err := IntegrationFS.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("open embedded %s: %w", srcPath, err)
 	}
-	return nil
+
+	embedded, err := io.ReadAll(src)
+	src.Close()
+	if err != nil {
+		return fmt.Errorf("read embedded %s: %w", srcPath, err)
+	}
+
+	existing, err := os.ReadFile(destPath)
+	if err == nil && string(existing) == string(embedded) {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return fmt.Errorf("create dir for %s: %w", destPath, err)
+	}
+	return os.WriteFile(destPath, embedded, 0644)
 }
 
 func ensureConfig() error {
@@ -288,10 +277,10 @@ func ensureConfig() error {
 # Override SQLite database path (default: <DataDir>/hunch.db)
 # db_path = "/var/lib/hunch/hunch.db"
 
-# Keys that accept the current ghost-text suggestion (zsh inline mode)
-# zsh: right, end (and Alt-n / Alt-p to cycle). bash/fish/powershell show a
-# post-command hint instead and have no accept key.
+# Keys that accept the current ghost-text suggestion
 # accept_keys = ["right", "end"]
+# Alt-n / Alt-p cycle through ranked suggestions (not configurable here; see
+# the zsh integration for keybinding overrides).
 
 # Path to the daemon binary
 # daemon_bin = "/usr/local/bin/hunch"
@@ -314,16 +303,19 @@ func ensureConfig() error {
 	return nil
 }
 
-func findIntegration(shell string) (string, error) {
+// findIntegration locates the zsh integration script, preferring the copy
+// EnsureIntegrations wrote to the data directory, then falling back to a
+// build-relative path (for a `go run`/local-clone workflow).
+func findIntegration() (string, error) {
 	dataDir, dataDirErr := daemon.DataDir()
 	if dataDirErr == nil {
-		p := filepath.Join(dataDir, "hunch", "integrations", shell, "hunch."+shellFileExt(shell))
+		p := filepath.Join(dataDir, "hunch", "integrations", "zsh", "hunch.zsh")
 		if _, err := os.Stat(p); err == nil {
 			return p, nil
 		}
 	}
 
-	relative := filepath.Join("integrations", shell, fmt.Sprintf("hunch.%s", shellFileExt(shell)))
+	relative := filepath.Join("integrations", "zsh", "hunch.zsh")
 	execPath, err := os.Executable()
 	if err == nil {
 		execDir := filepath.Dir(execPath)
@@ -349,16 +341,7 @@ func findIntegration(shell string) (string, error) {
 	}
 
 	if dataDirErr == nil {
-		return filepath.Join(dataDir, "hunch", "integrations", shell, "hunch."+shellFileExt(shell)), nil
+		return filepath.Join(dataDir, "hunch", "integrations", "zsh", "hunch.zsh"), nil
 	}
 	return "", fmt.Errorf("cannot locate integration files; run hunch init first, then retry")
-}
-
-func shellFileExt(shell string) string {
-	switch shell {
-	case "powershell":
-		return "ps1"
-	default:
-		return shell
-	}
 }

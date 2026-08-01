@@ -19,7 +19,7 @@ import (
 
 func cmdClient(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: hunch client <op>\n\nops: record, predict, reset, export, normalize, stats, config, import, serve")
+		return fmt.Errorf("usage: hunch client <op>\n\nops: record, predict, explain, reset, export, normalize, stats, config, import, serve")
 	}
 
 	switch args[0] {
@@ -27,6 +27,8 @@ func cmdClient(args []string) error {
 		return cmdClientRecord(args[1:])
 	case "predict":
 		return cmdClientPredict(args[1:])
+	case "explain":
+		return cmdClientExplain(args[1:])
 	case "reset":
 		return cmdClientReset()
 	case "export":
@@ -42,7 +44,7 @@ func cmdClient(args []string) error {
 	case "serve":
 		return cmdClientServe(args[1:])
 	default:
-		return fmt.Errorf("unknown client op: %q\n\nops: record, predict, reset, export, normalize, stats, config, import, serve", args[0])
+		return fmt.Errorf("unknown client op: %q\n\nops: record, predict, explain, reset, export, normalize, stats, config, import, serve", args[0])
 	}
 }
 
@@ -192,6 +194,49 @@ func cmdClientPredict(args []string) error {
 	}
 	fmt.Println(string(b))
 	return nil
+}
+
+func cmdClientExplain(args []string) error {
+	fs := flag.NewFlagSet("hunch client explain", flag.ContinueOnError)
+	stateStr := fs.String("state", "", "comma-separated list of state templates")
+	limit := fs.Int("limit", 5, "max candidates to break down")
+	at := fs.String("at", "", "RFC 3339 timestamp")
+	cwd := fs.String("cwd", "", "current working directory")
+	priorOutcome := fs.String("prior-outcome", "", "outcome of the most recent command")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	resp, err := explain(*stateStr, *cwd, *priorOutcome, *at, *limit)
+	if err != nil {
+		return err
+	}
+
+	b, err := json.MarshalIndent(resp, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal explain response: %w", err)
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+// explain sends an explain request and returns the parsed response, shared
+// by `hunch client explain` (raw JSON) and `hunch why` (formatted).
+func explain(stateStr, cwd, priorOutcome, at string, limit int) (ipc.ExplainResponse, error) {
+	req := ipc.Request{
+		Op:           "explain",
+		State:        splitState(stateStr),
+		Limit:        limit,
+		CWD:          cwd,
+		PriorOutcome: priorOutcome,
+	}
+	if at != "" {
+		req.At = at
+	}
+
+	var resp ipc.ExplainResponse
+	err := unmarshalResponse(req, &resp)
+	return resp, err
 }
 
 func cmdClientReset() error {

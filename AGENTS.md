@@ -108,13 +108,19 @@ Responsibilities:
 - Capture executed commands
 - Send events to daemon
 - Request predictions
-- Render suggestions (ghost text or post-command hints)
+- Render suggestions as inline ghost text
 
 Subdirectories:
 
-- `zsh/` - ZLE integration
-- `bash/` - readline hooks
-- `fish/` - fish event hooks
+- `zsh/` - ZLE integration (inline ghost text via `POSTDISPLAY`)
+
+zsh only, deliberately: inline ghost text needs a per-keystroke hook plus a
+place to draw text the shell won't try to execute, and zsh's ZLE is the only
+shell scripting layer that exposes both. bash's line editor (Readline) has no
+such primitive without a large add-on (ble.sh); fish owns its own
+autosuggestions with no plugin override point; PowerShell's equivalent
+(PSReadLine `ICommandPredictor`) requires a compiled module, not a script.
+See README.md's "Shell support" section before adding another shell here.
 
 Must remain minimal and contain no learning logic.
 

@@ -478,3 +478,120 @@ func TestPredictFutureAt(t *testing.T) {
 		t.Fatalf("Predict with future at returned %d, want 1", len(suggestions))
 	}
 }
+
+func TestExplainEmptyGraphReturnsNil(t *testing.T) {
+	g := graph.New(2)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	breakdown := p.Explain(types.State{
+		Previous: []types.Command{{Template: "git add PATH"}},
+	}, now, 0)
+	if breakdown != nil {
+		t.Errorf("Explain on empty graph = %v, want nil", breakdown)
+	}
+}
+
+// Explain must rank identically to Predict (same underlying formula) and
+// expose the components that produced each score, not just the total.
+func TestExplainMatchesPredictRankingAndComponents(t *testing.T) {
+	g := graph.New(2)
+	// beta (CWD), gamma (failure), delta (prior), epsilon (accept) all on,
+	// so every breakdown field has a chance to be exercised.
+	p := New(g, 720*time.Hour, 0.5, 0.75, 0.5, 0.5, 0.5)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	// The graph key includes the query CWD when one is set (see
+	// stateTemplates), so both candidates must be recorded under the same
+	// CWD-prefixed key to compete in one query; obs.CWD controls only
+	// whether an observation counts toward the CWD-affinity histogram.
+	state := []string{"/repo", "", "git add PATH"}
+
+	g.RecordObs(graph.Observation{
+		State: state, Next: "git commit FLAG STR", At: now,
+		CWD: "/repo", NextOutcome: types.OutcomeSuccess,
+		PriorOutcome: types.OutcomeSuccess, Accepted: true,
+	})
+	g.RecordObs(graph.Observation{
+		State: state, Next: "git commit FLAG STR", At: now,
+		CWD: "/repo", NextOutcome: types.OutcomeSuccess,
+		PriorOutcome: types.OutcomeSuccess, Accepted: true,
+	})
+	g.RecordObs(graph.Observation{
+		State: state, Next: "git push STR", At: now,
+		NextOutcome: types.OutcomeFailure,
+	})
+
+	qstate := types.State{
+		Previous:     []types.Command{{Template: ""}, {Template: "git add PATH"}},
+		CWD:          "/repo",
+		PriorOutcome: types.OutcomeSuccess,
+	}
+
+	suggestions := p.Predict(qstate, now, 0)
+	breakdown := p.Explain(qstate, now, 0)
+
+	if len(breakdown) != len(suggestions) {
+		t.Fatalf("Explain returned %d candidates, Predict returned %d", len(breakdown), len(suggestions))
+	}
+	for i := range suggestions {
+		if breakdown[i].Next != suggestions[i].Template {
+			t.Errorf("candidate %d: Explain next = %q, Predict template = %q", i, breakdown[i].Next, suggestions[i].Template)
+		}
+		if breakdown[i].Score != suggestions[i].Score {
+			t.Errorf("candidate %d: Explain score = %v, Predict score = %v", i, breakdown[i].Score, suggestions[i].Score)
+		}
+		if breakdown[i].Count != suggestions[i].Count {
+			t.Errorf("candidate %d: Explain count = %d, Predict count = %d", i, breakdown[i].Count, suggestions[i].Count)
+		}
+	}
+
+	// The higher-ranked candidate (git commit) was fully in-CWD, followed a
+	// successful prior command, and was always accepted; the other candidate
+	// (git push) has none of that and failed every time it ran.
+	top := breakdown[0]
+	if top.Next != "git commit FLAG STR" {
+		t.Fatalf("top candidate = %q, want git commit FLAG STR", top.Next)
+	}
+	if top.CWDAffinity != 1 {
+		t.Errorf("top.CWDAffinity = %v, want 1", top.CWDAffinity)
+	}
+	if top.PriorAffinity != 1 {
+		t.Errorf("top.PriorAffinity = %v, want 1", top.PriorAffinity)
+	}
+	if top.AcceptRate != 1 {
+		t.Errorf("top.AcceptRate = %v, want 1", top.AcceptRate)
+	}
+	if top.FailureRate != 0 {
+		t.Errorf("top.FailureRate = %v, want 0", top.FailureRate)
+	}
+
+	other := breakdown[1]
+	if other.Next != "git push STR" {
+		t.Fatalf("second candidate = %q, want git push STR", other.Next)
+	}
+	if other.FailureRate != 1 {
+		t.Errorf("other.FailureRate = %v, want 1", other.FailureRate)
+	}
+	if other.CWDAffinity != 0 {
+		t.Errorf("other.CWDAffinity = %v, want 0 (never observed in /repo)", other.CWDAffinity)
+	}
+}
+
+func TestExplainRespectsLimit(t *testing.T) {
+	g := graph.New(2)
+	p := New(g, 720*time.Hour, 0.5, 0, 0, 0, 0)
+
+	now := time.Date(2025, 12, 1, 10, 0, 0, 0, time.UTC)
+	state := []string{"", "cmd"}
+	g.Record(state, "a", now)
+	g.Record(state, "b", now)
+	g.Record(state, "c", now)
+
+	breakdown := p.Explain(types.State{
+		Previous: []types.Command{{Template: ""}, {Template: "cmd"}},
+	}, now, 2)
+	if len(breakdown) != 2 {
+		t.Fatalf("Explain with limit 2 returned %d candidates", len(breakdown))
+	}
+}

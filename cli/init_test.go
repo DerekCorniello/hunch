@@ -23,7 +23,7 @@ func withTempHome(t *testing.T) string {
 func TestAppendToRcCreatesFileWithMarkers(t *testing.T) {
 	home := withTempHome(t)
 
-	if err := appendToRc("zsh", "/opt/hunch/hunch.zsh"); err != nil {
+	if err := appendToRc("/opt/hunch/hunch.zsh"); err != nil {
 		t.Fatalf("appendToRc: %v", err)
 	}
 
@@ -49,7 +49,7 @@ func TestAppendToRcIsIdempotent(t *testing.T) {
 	const line = "/opt/hunch/hunch.zsh"
 
 	for i := 0; i < 3; i++ {
-		if err := appendToRc("zsh", line); err != nil {
+		if err := appendToRc(line); err != nil {
 			t.Fatalf("appendToRc call %d: %v", i, err)
 		}
 	}
@@ -65,13 +65,13 @@ func TestAppendToRcIsIdempotent(t *testing.T) {
 
 func TestAppendToRcPreservesExistingContent(t *testing.T) {
 	home := withTempHome(t)
-	rc := filepath.Join(home, ".bashrc")
+	rc := filepath.Join(home, ".zshrc")
 	const existing = "export EDITOR=vim\nalias ll='ls -la'\n"
 	if err := os.WriteFile(rc, []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := appendToRc("bash", "/opt/hunch/hunch.bash"); err != nil {
+	if err := appendToRc("/opt/hunch/hunch.zsh"); err != nil {
 		t.Fatalf("appendToRc: %v", err)
 	}
 
@@ -87,12 +87,12 @@ func TestAppendToRcPreservesExistingContent(t *testing.T) {
 // A missing trailing newline must not glue the marker onto the user's last line.
 func TestAppendToRcSeparatesUnterminatedLastLine(t *testing.T) {
 	home := withTempHome(t)
-	rc := filepath.Join(home, ".bashrc")
+	rc := filepath.Join(home, ".zshrc")
 	if err := os.WriteFile(rc, []byte("export EDITOR=vim"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := appendToRc("bash", "/opt/hunch/hunch.bash"); err != nil {
+	if err := appendToRc("/opt/hunch/hunch.zsh"); err != nil {
 		t.Fatalf("appendToRc: %v", err)
 	}
 
@@ -108,13 +108,13 @@ func TestAppendToRcSeparatesUnterminatedLastLine(t *testing.T) {
 func TestAppendToRcCreatesParentDirectory(t *testing.T) {
 	home := withTempHome(t)
 
-	// fish's rc lives at ~/.config/fish/config.fish, which will not exist.
-	if err := appendToRc("fish", "/opt/hunch/hunch.fish"); err != nil {
+	// The temp $HOME won't already have a .zshrc.
+	if err := appendToRc("/opt/hunch/hunch.zsh"); err != nil {
 		t.Fatalf("appendToRc: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(home, ".config", "fish", "config.fish")); err != nil {
-		t.Errorf("fish config was not created: %v", err)
+	if _, err := os.Stat(filepath.Join(home, ".zshrc")); err != nil {
+		t.Errorf(".zshrc was not created: %v", err)
 	}
 }
 
@@ -128,7 +128,7 @@ func TestAppendToRcPreservesFilePermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := appendToRc("zsh", "/opt/hunch/hunch.zsh"); err != nil {
+	if err := appendToRc("/opt/hunch/hunch.zsh"); err != nil {
 		t.Fatalf("appendToRc: %v", err)
 	}
 
@@ -141,23 +141,11 @@ func TestAppendToRcPreservesFilePermissions(t *testing.T) {
 	}
 }
 
-func TestRcFilePathShellPerShell(t *testing.T) {
+func TestZshrcPath(t *testing.T) {
 	home := withTempHome(t)
 
-	tests := []struct {
-		shell string
-		want  string
-	}{
-		{"zsh", filepath.Join(home, ".zshrc")},
-		{"bash", filepath.Join(home, ".bashrc")},
-		{"fish", filepath.Join(home, ".config", "fish", "config.fish")},
-		{"unrecognized", filepath.Join(home, ".profile")},
-	}
-	for _, tt := range tests {
-		t.Run(tt.shell, func(t *testing.T) {
-			if got := rcFilePathShell(tt.shell); got != tt.want {
-				t.Errorf("rcFilePathShell(%q) = %q, want %q", tt.shell, got, tt.want)
-			}
-		})
+	want := filepath.Join(home, ".zshrc")
+	if got := zshrcPath(); got != want {
+		t.Errorf("zshrcPath() = %q, want %q", got, want)
 	}
 }

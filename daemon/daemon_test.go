@@ -499,6 +499,85 @@ func TestDaemonPredictPrefixNoMatch(t *testing.T) {
 	}
 }
 
+func TestDaemonExplainOp(t *testing.T) {
+	_, _, socket := startDaemon(t, testConfig())
+
+	conn := dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op":    "record",
+		"state": []string{"", "git add ."},
+		"next":  "git commit -m init",
+	})
+	var okResp map[string]interface{}
+	readJSON(t, conn, &okResp)
+	conn.Close()
+
+	conn = dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op":    "explain",
+		"state": []string{"", "git add ."},
+		"limit": 5,
+	})
+	var resp struct {
+		Level         string   `json:"level"`
+		State         []string `json:"state"`
+		MinConfidence float64  `json:"min_confidence"`
+		MinCount      int      `json:"min_count"`
+		Breakdown     []struct {
+			Next        string  `json:"next"`
+			Count       int     `json:"count"`
+			DecayWeight float64 `json:"decay_weight"`
+			Score       float64 `json:"score"`
+		} `json:"breakdown"`
+	}
+	readJSON(t, conn, &resp)
+	conn.Close()
+
+	if resp.Level == "" {
+		t.Error("expected a non-empty level label")
+	}
+	if len(resp.Breakdown) != 1 {
+		t.Fatalf("expected 1 breakdown candidate, got %d", len(resp.Breakdown))
+	}
+	got := resp.Breakdown[0]
+	if got.Next != "git commit FLAG STR" {
+		t.Errorf("next = %q, want %q", got.Next, "git commit FLAG STR")
+	}
+	if got.Count != 1 {
+		t.Errorf("count = %d, want 1", got.Count)
+	}
+	if got.Score <= 0 {
+		t.Errorf("score = %v, want > 0", got.Score)
+	}
+	if got.DecayWeight <= 0 || got.DecayWeight > 1 {
+		t.Errorf("decay weight = %v, want in (0, 1]", got.DecayWeight)
+	}
+}
+
+func TestDaemonExplainOpNoMatch(t *testing.T) {
+	_, _, socket := startDaemon(t, testConfig())
+
+	conn := dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op":    "explain",
+		"state": []string{"", "never-seen-command"},
+		"limit": 5,
+	})
+	var resp struct {
+		Level     string        `json:"level"`
+		Breakdown []interface{} `json:"breakdown"`
+	}
+	readJSON(t, conn, &resp)
+	conn.Close()
+
+	if len(resp.Breakdown) != 0 {
+		t.Errorf("expected no candidates for an unseen context, got %d", len(resp.Breakdown))
+	}
+	if resp.Level == "" {
+		t.Error("expected a level label even when nothing matched")
+	}
+}
+
 func TestDaemonBadRequest(t *testing.T) {
 	_, _, socket := startDaemon(t, LoadConfig())
 

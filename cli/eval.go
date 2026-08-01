@@ -14,27 +14,19 @@ func cmdEval(args []string) error {
 	var warmup int
 
 	fs := flag.NewFlagSet("hunch eval", flag.ContinueOnError)
-	fs.StringVar(&path, "path", "", "history file path (overrides the shell default)")
+	fs.StringVar(&path, "path", "", "history file path (overrides ~/.zsh_history)")
 	fs.IntVar(&warmup, "warmup", eval.DefaultOptions().Warmup, "commands to learn from before scoring begins")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: hunch eval <shell> [--path <file>] [--warmup N]\n\nshells: zsh, bash, fish, powershell")
-	}
 
-	shell := fs.Arg(0)
-	if !validShell(shell) {
-		return fmt.Errorf("unknown shell: %q\n\nsupported shells: zsh, bash, fish, powershell", shell)
-	}
-
-	historyPath, _, err := resolveHistoryPath(shell, path)
+	historyPath, _, err := resolveHistoryPath(path)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "Parsing %s history...\n", shell)
-	rawCmds, err := parseHistory(shell, historyPath)
+	fmt.Fprintln(os.Stderr, "Parsing zsh history...")
+	rawCmds, err := parseZshHistory(historyPath)
 	if err != nil {
 		return fmt.Errorf("parse history: %w", err)
 	}
@@ -80,20 +72,4 @@ func printEvalResult(r eval.Result, historySize int) {
 	fmt.Println()
 	fmt.Println("Each command is predicted using only the commands before it,")
 	fmt.Println("which is how the daemon sees your history as you work.")
-}
-
-// parseHistory dispatches to the parser for a shell. The powershell parser
-// queries the live session rather than reading a file, so it ignores path.
-func parseHistory(shell, path string) ([]string, error) {
-	switch shell {
-	case "zsh":
-		return parseZshHistory(path)
-	case "bash":
-		return parseBashHistory(path)
-	case "fish":
-		return parseFishHistory(path)
-	case "powershell":
-		return parsePowerShellHistory()
-	}
-	return nil, fmt.Errorf("unknown shell: %s", shell)
 }

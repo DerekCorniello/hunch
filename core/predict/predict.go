@@ -49,30 +49,12 @@ func New(g *graph.Graph, halfLife time.Duration, alpha, beta, gamma, delta, epsi
 // keys. state.PriorOutcome softly boosts transitions following the same
 // prior outcome.
 func (p *Predictor) Predict(state types.State, at time.Time, limit int) []types.Suggestion {
-	templates := make([]string, 0, len(state.Previous)+1)
-	if state.CWD != "" {
-		templates = append(templates, state.CWD)
-	}
-	for _, cmd := range state.Previous {
-		templates = append(templates, cmd.Template)
-	}
-
-	transitions := p.g.Transitions(templates)
+	transitions := p.g.Transitions(stateTemplates(state))
 	if len(transitions) == 0 {
 		return nil
 	}
 
-	scored := scoreTransitions(transitions, scoreParams{
-		halfLife:     p.halfLife,
-		alpha:        p.alpha,
-		beta:         p.beta,
-		gamma:        p.gamma,
-		delta:        p.delta,
-		epsilon:      p.epsilon,
-		cwd:          state.CWD,
-		priorOutcome: state.PriorOutcome,
-		at:           at,
-	})
+	scored := scoreTransitions(transitions, p.scoreParams(state, at))
 
 	if limit > 0 && len(scored) > limit {
 		scored = scored[:limit]
@@ -87,4 +69,50 @@ func (p *Predictor) Predict(state types.State, at time.Time, limit int) []types.
 		}
 	}
 	return suggestions
+}
+
+// Explain returns the same ranked candidates as Predict, but with each
+// candidate's individual scoring components (decay, CWD affinity,
+// prior-outcome affinity, acceptance rate, failure rate) broken out instead
+// of collapsed into a single score. Use it to diagnose why a suggestion did
+// or didn't appear.
+func (p *Predictor) Explain(state types.State, at time.Time, limit int) []ScoreBreakdown {
+	transitions := p.g.Transitions(stateTemplates(state))
+	if len(transitions) == 0 {
+		return nil
+	}
+
+	breakdown := scoreTransitionsDetailed(transitions, p.scoreParams(state, at))
+
+	if limit > 0 && len(breakdown) > limit {
+		breakdown = breakdown[:limit]
+	}
+	return breakdown
+}
+
+// stateTemplates builds the graph lookup key from a query state: the CWD (if
+// known) prepended to the prior-command templates, most recent last.
+func stateTemplates(state types.State) []string {
+	templates := make([]string, 0, len(state.Previous)+1)
+	if state.CWD != "" {
+		templates = append(templates, state.CWD)
+	}
+	for _, cmd := range state.Previous {
+		templates = append(templates, cmd.Template)
+	}
+	return templates
+}
+
+func (p *Predictor) scoreParams(state types.State, at time.Time) scoreParams {
+	return scoreParams{
+		halfLife:     p.halfLife,
+		alpha:        p.alpha,
+		beta:         p.beta,
+		gamma:        p.gamma,
+		delta:        p.delta,
+		epsilon:      p.epsilon,
+		cwd:          state.CWD,
+		priorOutcome: state.PriorOutcome,
+		at:           at,
+	}
 }

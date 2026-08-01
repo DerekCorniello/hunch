@@ -39,17 +39,13 @@ lint:
 	$(GO) vet ./...
 	which staticcheck 2>/dev/null && staticcheck ./...
 
-# Local convenience: skips any shell that is not installed. CI runs the same
-# checks strictly (see the lint-shell job in .github/workflows/ci.yml).
+# Local convenience: skips zsh if not installed. CI runs the same checks
+# strictly (see the lint-shell job in .github/workflows/ci.yml).
 lint-shell:
-	@echo "--- bash ---"
-	which shellcheck 2>/dev/null && shellcheck integrations/bash/hunch.bash scripts/e2e-test.sh .githooks/pre-commit || echo "shellcheck not found, skipping"
+	@echo "--- shellcheck ---"
+	which shellcheck 2>/dev/null && shellcheck scripts/e2e-test.sh .githooks/pre-commit || echo "shellcheck not found, skipping"
 	@echo "--- zsh ---"
 	which zsh 2>/dev/null && zsh -n integrations/zsh/hunch.zsh || echo "zsh not found, skipping"
-	@echo "--- fish ---"
-	which fish 2>/dev/null && fish -n integrations/fish/hunch.fish || echo "fish not found, skipping"
-	@echo "--- powershell ---"
-	which pwsh 2>/dev/null && pwsh -NoLogo -NoProfile -Command "[ScriptBlock]::Create((Get-Content -Raw 'integrations/powershell/hunch.ps1')) | Out-Null" || echo "pwsh not found, skipping"
 
 hooks:
 	@if [ "$(shell git config core.hooksPath)" != ".githooks" ]; then \

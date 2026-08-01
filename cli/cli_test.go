@@ -97,31 +97,9 @@ func TestHelp(t *testing.T) {
 }
 
 func TestInitPrintsSourceLine(t *testing.T) {
-	for _, shell := range []string{"zsh", "bash", "fish", "powershell"} {
-		t.Run(shell, func(t *testing.T) {
-			err := Run([]string{"init", shell})
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-func TestInitUnknownShell(t *testing.T) {
-	err := Run([]string{"init", "unknown"})
-	if err == nil {
-		t.Fatal("expected error for unknown shell")
-	}
-}
-
-func TestInitMissingShell(t *testing.T) {
-	saved := os.Getenv("SHELL")
-	os.Setenv("SHELL", "")
-	t.Cleanup(func() { os.Setenv("SHELL", saved) })
-
 	err := Run([]string{"init"})
-	if err == nil {
-		t.Fatal("expected error for missing shell")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -474,23 +452,6 @@ func TestClientImportMissingPath(t *testing.T) {
 	}
 }
 
-func TestImportHistoryUnknownShell(t *testing.T) {
-	err := Run([]string{"import-history", "unknown"})
-	if err == nil {
-		t.Fatal("expected error for unknown shell")
-	}
-	if !strings.Contains(err.Error(), "unknown shell") {
-		t.Errorf("error = %q, want 'unknown shell'", err)
-	}
-}
-
-func TestImportHistoryMissingShell(t *testing.T) {
-	err := Run([]string{"import-history"})
-	if err == nil {
-		t.Fatal("expected error for missing shell arg")
-	}
-}
-
 func TestImportHistoryNoDaemon(t *testing.T) {
 	t.Setenv("HUNCH_SOCKET", filepath.Join(t.TempDir(), "nonexistent.sock"))
 
@@ -500,7 +461,7 @@ func TestImportHistoryNoDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := Run([]string{"import-history", "zsh", "--path", historyPath})
+	err := Run([]string{"import-history", "--path", historyPath})
 	if err == nil {
 		t.Fatal("expected error when daemon is not running")
 	}
@@ -566,9 +527,9 @@ func TestFindIntegrationInDataDir(t *testing.T) {
 	// them in the real system data dir (from prior tests that called
 	// EnsureIntegrations), or fall back to the "last resort" data dir path.
 	// Either way, the returned path should end with "zsh/hunch.zsh".
-	path, err := findIntegration("zsh")
+	path, err := findIntegration()
 	if err != nil {
-		t.Fatalf("findIntegration(zsh): %v", err)
+		t.Fatalf("findIntegration(): %v", err)
 	}
 	if !strings.HasSuffix(path, "zsh/hunch.zsh") && !strings.HasSuffix(path, "zsh\\hunch.zsh") {
 		t.Errorf("path = %q, want suffix zsh/hunch.zsh", path)

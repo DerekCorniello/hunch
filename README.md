@@ -7,6 +7,8 @@ Hunch predicts your next shell command from your own history. Local, statistical
 
 It learns which commands tend to follow which, then shows the most likely next one as ghost text - accept it with a keystroke, or keep typing. No LLM, no cloud, no accounts, and it gets better the more you use it.
 
+**zsh only, for now.** Hunch needs a per-keystroke prediction path and a ghost-text primitive; zsh's ZLE is the only shell scripting layer that gives a plugin both. See [Shell support](#shell-support) for why bash, fish, and PowerShell aren't there yet, and what it would take.
+
 ---
 
 ## Quick start
@@ -15,7 +17,7 @@ It learns which commands tend to follow which, then shows the most likely next o
 # Install
 go install github.com/DerekCorniello/hunch@latest
 
-# Set up shell integration (auto-detects your shell, appends to rc file)
+# Set up the zsh integration (appends the source line to .zshrc)
 hunch init --auto
 
 # Restart your shell, and you're done.
@@ -26,6 +28,15 @@ git clone https://github.com/user/repo.git
 # ghost text: cd repo          press Right or End to accept
 ```
 
+`hunch init` offers to import your existing `~/.zsh_history` so you don't
+start from nothing, and prints a self-test accuracy number computed from that
+same history right after:
+
+```text
+Self-test on your history: top-1 24%, top-3 31% (vs. 9% always guessing your most frequent command).
+Run 'hunch eval' any time to recheck this against your live history.
+```
+
 After a few commands, Hunch learns your workflows:
 
 ```text
@@ -33,6 +44,9 @@ git clone REPO -> cd STR
 cargo build    -> cargo run
 ssh STR        -> ssh STR
 ```
+
+If a suggestion looks wrong, `hunch why` explains the scoring behind it
+instead of asking you to trust it (see [`hunch why`](#hunch-why)).
 
 ---
 
@@ -91,82 +105,73 @@ Hunch requires no external runtime dependencies. The Go binary is fully static (
 
 ## Shell integration
 
-Run `hunch init <shell>` to print the source line to add to your rc file, or use `--auto` to append it automatically:
-
 ```bash
-# Auto-detect shell and append source line to rc file
+# Set up zsh integration and append the source line to .zshrc
 hunch init --auto
 
-# Or specify shell explicitly
-hunch init zsh --auto
-
-# Without --auto, just prints the source line
-hunch init zsh
+# Without --auto, just prints the source line to add yourself
+hunch init
 # Prints: source /path/to/hunch/integrations/zsh/hunch.zsh
-
-# bash
-hunch init bash
-
-# fish
-hunch init fish
-
-# PowerShell (add to your $PROFILE)
-hunch init powershell
 ```
 
-### Support matrix
+The integration:
+- Auto-starts the daemon when sourced
+- Shows inline ghost text as you type, via a persistent `serve` coprocess and zsh's `POSTDISPLAY` - accept with Right/End, cycle candidates with Alt-n / Alt-p
+- Captures each command's exit code and working directory, feeding the location-affinity and outcome-weighting signals
+- Sends recorded commands to the daemon asynchronously (non-blocking)
+- Uses the `HUNCH_BIN` environment variable to locate the `hunch` binary (default: `hunch`)
+- Silently degrades if the daemon is unavailable
+- Composes with `zsh-autosuggestions` and similar plugins regardless of load order (see [Shell integration conflicts](#shell-integration-conflicts))
 
-Each shell gets the best experience it can support reliably. Inline ghost text
-(suggestions as you type) needs a per-keystroke prediction path and a
-ghost-text primitive; only zsh has both, so the other shells fall back to a dim
-post-command hint showing the most likely next command.
+### Shell support
 
-| Shell | UX | Mechanism | Accept / cycle |
-|-------|----|-----------|----------------|
-| zsh | **Inline ghost text** as you type | persistent `serve` coprocess + `POSTDISPLAY` | Right/End to accept; Alt-n / Alt-p to cycle |
-| bash | Post-command hint line | `client predict` in `PROMPT_COMMAND` | - (type or copy) |
-| fish | Post-command hint line | `client predict` in `fish_postexec` | - (fish's own autosuggestions still apply) |
-| PowerShell | Post-command hint line | `client predict` in a wrapped `prompt` | - |
+Hunch is zsh-only right now. This isn't an arbitrary limitation - it's that
+inline ghost text (a suggestion appearing after your cursor as you type, which
+you accept with a keystroke or type over) needs a shell scripting layer that
+exposes two things: a per-keystroke hook, and a place to draw text the shell
+itself won't try to execute. Whether a shell offers that varies a lot:
 
-> **Why not inline everywhere?** bash has no ghost-text primitive without a
-> large add-on like ble.sh; fish's native autosuggestion engine owns inline
-> text and resists external injection; PowerShell's native inline predictor
-> (PSReadLine `ICommandPredictor`) requires a compiled binary module. A native
-> PowerShell predictor module is possible future work. The post-command hint is
-> robust everywhere and never fights the shell's own line editor.
+| Shell | Can a plugin do this? | Why / why not |
+|-------|------------------------|----------------|
+| **zsh** | Yes - this is what hunch uses | ZLE exposes both a per-keystroke hook and `POSTDISPLAY`, a variable built for exactly this. `zsh-autosuggestions` uses the same mechanism. |
+| **bash** | No, not without a large add-on | Bash's line editor (GNU Readline) has no inline-suggestion concept at all. The only way in is [ble.sh](https://github.com/akinomyoga/ble.sh), which replaces Readline entirely with a pure-bash reimplementation - a heavy, non-default dependency. |
+| **fish** | Not from outside fish | Fish already ships its own built-in autosuggestions, better than either of the above out of the box - but it doesn't expose a supported way for a third-party tool to feed suggestions into that mechanism. |
+| **PowerShell** | Not from a script | PSReadLine has `ICommandPredictor`, an official, well-designed extension point for exactly this (used by Microsoft's own predictors) - but it requires a compiled .NET module, not a `.ps1` profile script. This is the one gap that's genuinely just unbuilt, not blocked by the shell. |
 
-All integrations:
-- Auto-start the daemon when sourced
-- Capture each command's exit code and working directory, feeding the
-  location-affinity and outcome-weighting signals
-- Send recorded commands to the daemon asynchronously (non-blocking)
-- Use the `HUNCH_BIN` environment variable to locate the `hunch` binary (default: `hunch`)
-- Honor `HUNCH_HINT=0` (bash/fish/PowerShell) to silence the hint line
-- Silently degrade if the daemon is unavailable
+Given that, hunch focuses on zsh doing this well - inline suggestions, ranked
+cycling, acceptance feedback, all backed by real regression coverage - rather
+than spreading thin across four shells with three different, lesser
+experiences. A PowerShell `ICommandPredictor` module is the most plausible
+next platform if there's demand; bash and fish would need their own
+ecosystems to open a door that isn't open today.
+
+If you're on bash, fish, or PowerShell: `hunch daemon`, `hunch client`,
+`hunch stats`, `hunch eval`, and `hunch why` all still work from the CLI, you
+just won't get the shell-integrated ghost text.
 
 ---
 
 ## CLI reference
 
-### `hunch init [shell]`
+### `hunch init`
 
-Set up shell integration. Auto-detects shell from `$SHELL` if not specified. Supported shells: `zsh`, `bash`, `fish`, `powershell`.
-
-```
---auto               Automatically append source line to rc file
-```
-
-When run interactively, `hunch init` detects your shell history and offers to import
-it to jump-start predictions. In non-interactive contexts (piped, scripted), the
-prompt is skipped.
-
-### `hunch import-history <shell>`
-
-Import shell command history as training data for predictions. Supports `zsh`, `bash`,
-`fish`, and `powershell`.
+Set up the zsh integration.
 
 ```
---path <file>      History file path (defaults to the shell's standard location)
+--auto               Automatically append the source line to .zshrc
+```
+
+When run interactively, `hunch init` detects your `~/.zsh_history` and offers to import
+it to jump-start predictions, then prints a self-test accuracy summary computed
+from that same history (see `hunch eval` below). In non-interactive contexts
+(piped, scripted), the prompt is skipped.
+
+### `hunch import-history`
+
+Import `~/.zsh_history` as training data for predictions.
+
+```
+--path <file>      History file path (default: ~/.zsh_history)
 --threads <N>      Number of normalize worker threads (default: CPU count)
 ```
 
@@ -178,14 +183,14 @@ leaves the graph unchanged rather than doubling it. Worth doing after an upgrade
 that changes how transitions are recorded, since the import backfills context
 that older data does not have.
 
-### `hunch eval <shell>`
+### `hunch eval`
 
 Measure how well hunch predicts your own history. Replays your shell history in
 order, predicting each command using only the commands before it, which is how
 the daemon sees your session as you work.
 
 ```
---path <file>      History file path (defaults to the shell's standard location)
+--path <file>      History file path (default: ~/.zsh_history)
 --warmup <n>       Commands to learn from before scoring begins (default: 50)
 ```
 
@@ -194,6 +199,45 @@ offered, and a baseline: the hit rate you would get by always guessing your
 single most frequent command. The baseline is the number worth comparing
 against, since a shell history dominated by one command can make a weak model
 look strong.
+
+### `hunch why`
+
+Explain the scoring behind a prediction instead of asking you to trust it.
+Runs the same fallback ladder the daemon uses for a real suggestion (exact
+directory, then ancestor directory, then no directory, then shorter history),
+reports which level answered, and breaks down each candidate's score into its
+components: time-decay weight, CWD affinity, prior-outcome affinity,
+acceptance rate, and failure rate.
+
+```
+--state <prev1,prev2>   Prior commands (default: last 2 from ~/.zsh_history)
+--cwd <dir>             Directory to explain (default: current directory)
+--prior-outcome <s>     success, failure, or empty
+--limit <n>             Max candidates to show (default: 5)
+```
+
+With no flags, `hunch why` explains "what would hunch suggest right now, in
+this directory, given what I just ran" - so after seeing a suggestion you
+don't understand, running it plain is usually enough:
+
+```text
+$ hunch why
+
+hunch why
+
+context matched: exact directory
+  cwd:   /home/you/project
+  state: git add PATH -> git commit FLAG STR
+
+gates: a suggestion needs count >= 2 always; a fallback context also needs score >= 0.20
+
+#  SCORE  COUNT  DECAY  CWD  PRIOR  ACCEPT  FAIL  NEXT
+1  0.342  12     0.91   80%  -      -       5%    git push
+2  0.201  4      0.75   -    -      -       -     git status
+```
+
+`-` means that boost is either disabled or has no data for this candidate, so
+it left the score unchanged rather than pulling it up or down.
 
 ### `hunch daemon <action>`
 
@@ -214,6 +258,7 @@ Send an IPC operation to the running daemon.
 |----|-------------|
 | `record` | Record a command transition |
 | `predict` | Get next-command predictions |
+| `explain` | Get the scoring breakdown behind a prediction (JSON; see `hunch why` for a formatted view) |
 | `reset` | Wipe all learned data |
 | `export` | Export the transition graph as JSON |
 | `normalize`| Normalize a raw command to its template |
@@ -236,6 +281,20 @@ Send an IPC operation to the running daemon.
 --prefix <text>         Current buffer text for filtering
 --limit <n>             Max suggestions (default: 3)
 ```
+
+#### `hunch client explain`
+
+```
+--state <prev1,prev2>   Previous 1-2 commands (comma-separated)
+--cwd <dir>             Current working directory
+--prior-outcome <s>     success, failure, or empty
+--limit <n>             Max candidates to break down (default: 5)
+```
+
+Same context flags as `predict`, but returns the full `ExplainResponse` JSON
+(level, gating thresholds, per-candidate breakdown) instead of just the
+ranked suggestions. `hunch why` is this same request with human-formatted
+output.
 
 ### `hunch doctor`
 
@@ -309,7 +368,6 @@ hunch predict --state "git add,git commit" --limit 5
 | `HUNCH_EXTRA_PARENTS` | Extra parent commands (comma-separated) | (none) |
 | `HUNCH_IGNORE` | Extra regexes for sensitive commands to never record (comma-separated) | (none) |
 | `HUNCH_LOG_LEVEL` | Log level | `info` |
-| `HUNCH_HINT` | Set to `0` to silence the post-command hint (bash/fish/PowerShell) | `1` |
 
 Each scoring strength (`beta`/`gamma`/`delta`/`epsilon`) is a soft,
 multiplicative adjustment that is the identity when its signal is absent; set
@@ -386,8 +444,13 @@ See [AGENTS.md](AGENTS.md) for the full architecture and design decisions.
 |----------|--------|
 | Linux (x86_64, aarch64) | Full support |
 | macOS (x86_64, arm64) | Supported |
-| Windows (x86_64) | Supported (Unix domain sockets) |
+| Windows (x86_64) | Daemon/CLI supported (Unix domain sockets); shell integration needs zsh (e.g. via WSL) |
 | Other Unix (FreeBSD, etc.) | Supported (flock, XDG paths) |
+
+The daemon, CLI, and `hunch client` commands build and run everywhere Go
+cross-compiles. The shell integration itself is zsh, so on native Windows
+(PowerShell/cmd) you get the CLI and daemon but not inline ghost text unless
+you're running zsh under WSL. See [Shell support](#shell-support).
 
 On Windows, you may need to exclude `%LocalAppData%\hunch\` from Windows Defender
 real-time scanning to avoid lock contention with the SQLite database.
@@ -481,7 +544,7 @@ past command, so hunch suggests things you have run before, not novel commands.
 And it needs history to be useful: run `hunch import-history` to start from
 your existing history rather than from nothing.
 
-Measure it on your own history with `hunch eval <shell>` rather than taking
+Measure it on your own history with `hunch eval` rather than taking
 any of this on faith.
 
 ## Non-goals

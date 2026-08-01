@@ -78,23 +78,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install shells and shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck zsh fish
-      - name: shellcheck (bash integration, scripts, hooks)
-        run: shellcheck integrations/bash/hunch.bash scripts/e2e-test.sh .githooks/pre-commit
+      - name: Install zsh and shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck zsh
+      - name: shellcheck (scripts, hooks)
+        run: shellcheck scripts/e2e-test.sh .githooks/pre-commit
       - name: zsh syntax check
         run: zsh -n integrations/zsh/hunch.zsh
-      - name: fish syntax check
-        run: fish -n integrations/fish/hunch.fish
-      - name: PowerShell syntax check
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $src = Get-Content -Raw integrations/powershell/hunch.ps1
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseInput(
-            $src, [ref]$null, [ref]$errors) | Out-Null
-          if ($errors) { $errors | ForEach-Object { $_.ToString() }; exit 1 }
 
   cross-compile:
     runs-on: ubuntu-latest

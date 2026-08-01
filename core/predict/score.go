@@ -30,9 +30,29 @@ type scoreParams struct {
 	at           time.Time
 }
 
-// scoreTransitions applies the additive-smoothed decay formula with soft
-// multiplicative adjustments for working-directory affinity, prior-command
-// outcome, and the suggestion's own failure rate.
+// ScoreBreakdown exposes the individual components that fed a transition's
+// final score, so a surprising suggestion can be diagnosed (see
+// Predictor.Explain) instead of taken on faith. Fields default to their
+// identity value (0 for affinities/rates, 1 for DecayWeight would need no
+// decay) when the corresponding boost is disabled or its signal absent.
+type ScoreBreakdown struct {
+	Next  string // the suggested template
+	Count int    // raw observation count backing this transition
+
+	DecayWeight   float64 // time-decay factor in (0, 1]; 1 = just observed
+	CWDAffinity   float64 // fraction of observations in this/an ancestor dir, in [0, 1]
+	PriorAffinity float64 // fraction that followed the same prior-command outcome, in [0, 1]
+	AcceptRate    float64 // fraction the user actually accepted when shown, in [0, 1]
+	FailureRate   float64 // fraction of times Next itself failed, in [0, 1]
+
+	EffCount float64 // count * decay * all multiplicative boosts, pre-smoothing
+	Score    float64 // final (eff + alpha) / (total + alpha*N); what ranking uses
+}
+
+// scoreTransitionsDetailed is the scoring engine: it applies the
+// additive-smoothed decay formula with soft multiplicative adjustments for
+// working-directory affinity, prior-command outcome, acceptance history, and
+// the suggestion's own failure rate.
 //
 //	eff   = count * decay
 //	      * (1 + beta    * cwdAffinity)      // boost same-directory habits
@@ -46,12 +66,12 @@ type scoreParams struct {
 // terms - the additions never penalize cross-directory or unobserved cases.
 // Additive smoothing still prevents cold-start collapse and bounds scores to
 // (0, 1]. Results are sorted descending by score, then count, then next.
-func scoreTransitions(transitions []graph.Transition, p scoreParams) []scoredTransition {
+func scoreTransitionsDetailed(transitions []graph.Transition, p scoreParams) []ScoreBreakdown {
 	if len(transitions) == 0 {
 		return nil
 	}
 
-	effCounts := make([]float64, len(transitions))
+	breakdowns := make([]ScoreBreakdown, len(transitions))
 	var total float64
 
 	for i, t := range transitions {
@@ -60,24 +80,31 @@ func scoreTransitions(transitions []graph.Transition, p scoreParams) []scoredTra
 		weight := math.Exp(-math.Ln2 * float64(age) / float64(p.halfLife))
 		eff := float64(t.Count) * weight
 
+		b := ScoreBreakdown{Next: t.Next, Count: t.Count, DecayWeight: weight}
+
 		if p.beta > 0 {
-			eff *= 1 + p.beta*cwdAffinity(t.CWDs, t.Count, p.cwd)
+			b.CWDAffinity = cwdAffinity(t.CWDs, t.Count, p.cwd)
+			eff *= 1 + p.beta*b.CWDAffinity
 		}
 		if p.delta > 0 && p.priorOutcome != types.OutcomeUnknown {
-			eff *= 1 + p.delta*priorAffinity(t, p.priorOutcome)
+			b.PriorAffinity = priorAffinity(t, p.priorOutcome)
+			eff *= 1 + p.delta*b.PriorAffinity
 		}
 		if p.epsilon > 0 && t.Count > 0 {
 			rate := float64(t.Accepted) / float64(t.Count)
 			if rate > 1 {
 				rate = 1
 			}
+			b.AcceptRate = rate
 			eff *= 1 + p.epsilon*rate
 		}
 		if p.gamma > 0 {
-			eff *= 1 - p.gamma*failureRate(t)
+			b.FailureRate = failureRate(t)
+			eff *= 1 - p.gamma*b.FailureRate
 		}
 
-		effCounts[i] = eff
+		b.EffCount = eff
+		breakdowns[i] = b
 		total += eff
 	}
 
@@ -86,22 +113,33 @@ func scoreTransitions(transitions []graph.Transition, p scoreParams) []scoredTra
 	if denom <= 0 {
 		return nil
 	}
-
-	result := make([]scoredTransition, n)
-	for i, t := range transitions {
-		sc := (effCounts[i] + p.alpha) / denom
-		result[i] = scoredTransition{next: t.Next, count: t.Count, score: sc}
+	for i := range breakdowns {
+		breakdowns[i].Score = (breakdowns[i].EffCount + p.alpha) / denom
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].score != result[j].score {
-			return result[i].score > result[j].score
+	sort.Slice(breakdowns, func(i, j int) bool {
+		if breakdowns[i].Score != breakdowns[j].Score {
+			return breakdowns[i].Score > breakdowns[j].Score
 		}
-		if result[i].count != result[j].count {
-			return result[i].count > result[j].count
+		if breakdowns[i].Count != breakdowns[j].Count {
+			return breakdowns[i].Count > breakdowns[j].Count
 		}
-		return result[i].next < result[j].next
+		return breakdowns[i].Next < breakdowns[j].Next
 	})
+	return breakdowns
+}
+
+// scoreTransitions is scoreTransitionsDetailed narrowed to what Predict
+// needs, so the ranking formula has exactly one implementation.
+func scoreTransitions(transitions []graph.Transition, p scoreParams) []scoredTransition {
+	detailed := scoreTransitionsDetailed(transitions, p)
+	if detailed == nil {
+		return nil
+	}
+	result := make([]scoredTransition, len(detailed))
+	for i, b := range detailed {
+		result[i] = scoredTransition{next: b.Next, count: b.Count, score: b.Score}
+	}
 	return result
 }
 

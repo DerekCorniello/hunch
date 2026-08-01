@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/DerekCorniello/hunch/core/graph"
+	"github.com/DerekCorniello/hunch/core/predict"
 	"github.com/DerekCorniello/hunch/core/types"
 )
 
@@ -111,6 +112,54 @@ type ConfigResponse struct {
 	ExtraParents []string `json:"extra_parents"`
 	HalfLife     string   `json:"half_life"`
 	Alpha        float64  `json:"alpha"`
+}
+
+// ScoreBreakdownJSON is the JSON shape for a single candidate's scoring
+// breakdown in an explain response. See predict.ScoreBreakdown for what each
+// field means.
+type ScoreBreakdownJSON struct {
+	Next  string `json:"next"`
+	Count int    `json:"count"`
+
+	DecayWeight   float64 `json:"decay_weight"`
+	CWDAffinity   float64 `json:"cwd_affinity"`
+	PriorAffinity float64 `json:"prior_affinity"`
+	AcceptRate    float64 `json:"accept_rate"`
+	FailureRate   float64 `json:"failure_rate"`
+
+	EffCount float64 `json:"eff_count"`
+	Score    float64 `json:"score"`
+}
+
+// ExplainResponse is an explain response: which fallback rung answered, the
+// context it was answered under, the gating thresholds a candidate has to
+// clear to be shown, and the scoring breakdown for the top candidates there.
+type ExplainResponse struct {
+	Level         string               `json:"level"`
+	State         []string             `json:"state"`
+	CWD           string               `json:"cwd,omitempty"`
+	MinConfidence float64              `json:"min_confidence"`
+	MinCount      int                  `json:"min_count"`
+	Breakdown     []ScoreBreakdownJSON `json:"breakdown"`
+}
+
+// BreakdownFromPredict converts predictor score breakdowns to their JSON shape.
+func BreakdownFromPredict(bs []predict.ScoreBreakdown) []ScoreBreakdownJSON {
+	out := make([]ScoreBreakdownJSON, len(bs))
+	for i, b := range bs {
+		out[i] = ScoreBreakdownJSON{
+			Next:          b.Next,
+			Count:         b.Count,
+			DecayWeight:   b.DecayWeight,
+			CWDAffinity:   b.CWDAffinity,
+			PriorAffinity: b.PriorAffinity,
+			AcceptRate:    b.AcceptRate,
+			FailureRate:   b.FailureRate,
+			EffCount:      b.EffCount,
+			Score:         b.Score,
+		}
+	}
+	return out
 }
 
 // TransitionFromGraph converts a graph.Transition to TransitionJSON.
