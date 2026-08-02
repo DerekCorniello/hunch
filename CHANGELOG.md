@@ -87,9 +87,11 @@
   no concrete command was known, which could put unrunnable text on screen.
 
 ### Added
-- `min_confidence` (`HUNCH_MIN_CONFIDENCE`, default `0.20`) sets the score a
+- `min_confidence` (`HUNCH_MIN_CONFIDENCE`, default `0.10`) sets the score a
   generalized match must reach before it is shown. Exact-context matches are
-  always shown. Set it to `1` to only ever show exact matches.
+  always shown. Set it to `1` to only ever show exact matches. Lowered from
+  an initial `0.20` default before release, to favor showing more fallback
+  suggestions over staying silent.
 - `max_idle_days` (`HUNCH_MAX_IDLE_DAYS`, default `90`) - a flat cutoff
   separate from `half_life_hours`: a transition untouched for this many days
   is forgotten regardless of count, while `half_life_hours` continues to

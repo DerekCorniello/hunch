@@ -229,7 +229,7 @@ context matched: exact directory
   cwd:   /home/you/project
   state: git add PATH -> git commit FLAG STR
 
-gates: a suggestion needs count >= 2 always; a fallback context also needs score >= 0.20
+gates: a suggestion needs count >= 2 always; a fallback context also needs score >= 0.10
 
 #  SCORE  COUNT  DECAY  CWD  PRIOR  ACCEPT  FAIL  NEXT
 1  0.342  12     0.91   80%  -      -       5%    git push
@@ -379,7 +379,7 @@ hunch predict --state "git add,git commit" --limit 5
 | `HUNCH_GAMMA` | Failure-rate suppression strength | `0.5` |
 | `HUNCH_DELTA` | Prior-outcome boost strength | `0.5` |
 | `HUNCH_EPSILON` | Confirmed-acceptance boost strength | `0.5` |
-| `HUNCH_MIN_CONFIDENCE` | Score a generalized match must reach to be shown | `0.20` |
+| `HUNCH_MIN_CONFIDENCE` | Score a generalized match must reach to be shown | `0.10` |
 | `HUNCH_MIN_COUNT` | Times a command must have been seen before it is suggested | `2` |
 | `HUNCH_EXTRA_PARENTS` | Extra parent commands (comma-separated) | (none) |
 | `HUNCH_IGNORE` | Extra regexes for sensitive commands to never record (comma-separated) | (none) |
@@ -435,7 +435,7 @@ beta = 0.75    # CWD-affinity boost
 gamma = 0.5    # failure-rate suppression
 delta = 0.5    # prior-outcome boost
 epsilon = 0.5  # confirmed-acceptance boost
-min_confidence = 0.20  # bar for suggestions from a generalized context
+min_confidence = 0.10  # bar for suggestions from a generalized context
 min_count = 2          # ignore commands you have only run once
 accept_keys = ["right", "end"]
 extra_parents = ["mycli", "teamtool"]

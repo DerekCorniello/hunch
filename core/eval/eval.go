@@ -54,7 +54,7 @@ func DefaultOptions() Options {
 		Gamma:         0.5,
 		Delta:         0.5,
 		Epsilon:       0.5,
-		MinConfidence: 0.20,
+		MinConfidence: 0.10,
 		MinCount:      2,
 		Warmup:        50,
 		Interval:      time.Minute,
