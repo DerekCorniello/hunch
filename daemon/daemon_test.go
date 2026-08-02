@@ -477,6 +477,55 @@ func TestDaemonPredictFiltersByPrefix(t *testing.T) {
 	}
 }
 
+// Regression test: a suggestion shown at an empty buffer via a fallback
+// level (here, "no directory") must not vanish the instant the user types
+// its own prefix. predictFallback used to stop at level 1 unconditionally
+// whenever a prefix was supplied, so a query scoped to a CWD with no
+// exact-context data of its own returned nothing at all once a prefix was
+// typed, even though a confident fallback-level match existed and matched
+// that prefix - exactly what filterByPrefix exists to allow through.
+func TestDaemonPredictWithPrefixFallsBackWhenExactContextEmpty(t *testing.T) {
+	_, _, socket := startDaemon(t, testConfig())
+
+	// Recorded with no CWD, so it lives at the "no directory" fallback level,
+	// not at the exact-directory level for "/some/project" below.
+	conn := dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op":    "record",
+		"state": []string{"", "cmd"},
+		"next":  "git push origin main",
+	})
+	var resp map[string]interface{}
+	readJSON(t, conn, &resp)
+	conn.Close()
+
+	// Query scoped to a CWD that has no data of its own, with a prefix set -
+	// this is what the zsh integration sends on every keystroke once the
+	// buffer is non-empty.
+	conn = dial(t, socket)
+	writeJSON(t, conn, map[string]interface{}{
+		"op":     "predict",
+		"state":  []string{"", "cmd"},
+		"cwd":    "/some/project",
+		"prefix": "git pus",
+		"limit":  5,
+	})
+	var predResp struct {
+		Suggestions []struct {
+			Template string `json:"template"`
+		} `json:"suggestions"`
+	}
+	readJSON(t, conn, &predResp)
+	conn.Close()
+
+	if len(predResp.Suggestions) != 1 {
+		t.Fatalf("expected the fallback-level match to survive prefix filtering, got %d suggestions", len(predResp.Suggestions))
+	}
+	if predResp.Suggestions[0].Template != "git push STR" {
+		t.Errorf("template = %q, want %q", predResp.Suggestions[0].Template, "git push STR")
+	}
+}
+
 func TestDaemonPredictPrefixNoMatch(t *testing.T) {
 	_, _, socket := startDaemon(t, LoadConfig())
 

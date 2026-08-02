@@ -348,9 +348,15 @@ func (d *daemon) predictWithFallback(prev []types.Command, cwd string, prior typ
 // text that is usually wrong trains people to ignore it, which costs more than
 // staying quiet.
 //
-// Only an unfiltered query walks the ladder; when the caller supplied a
-// prefix, a broadened match would suggest commands unrelated to what they are
-// typing, so level 1 stands alone.
+// The ladder runs the same way regardless of prefix. Callers filter the
+// result to the prefix afterward (see filterByPrefix in handlers.go), which
+// already keeps a broadened match from suggesting something unrelated to
+// what's being typed - so a fallback-sourced suggestion that's still a valid
+// continuation of the prefix survives, instead of vanishing the instant the
+// user starts typing it (this was a real bug: a suggestion shown at an empty
+// buffer via a fallback level used to disappear as soon as you typed its own
+// first character, because a prefixed query stopped at level 1 unconditionally
+// and level 1 alone often has nothing).
 func (d *daemon) predictFallback(prev []types.Command, cwd string, prior types.Outcome, prefix string, at time.Time) fallbackResult {
 	query := func(previous []types.Command, dir string) []types.Suggestion {
 		return withMinCount(d.pred.Load().Predict(types.State{
@@ -366,7 +372,7 @@ func (d *daemon) predictFallback(prev []types.Command, cwd string, prior types.O
 
 	// Level 1: this exact directory, as learned from live sessions.
 	suggestions := query(prev, cwd)
-	if len(suggestions) > 0 || prefix != "" {
+	if len(suggestions) > 0 {
 		return fallbackResult{suggestions: suggestions, level: "exact directory", state: prev, cwd: cwd}
 	}
 

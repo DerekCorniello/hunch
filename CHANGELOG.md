@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v0.2.1 - 2026-08-02
+
+### Fixed
+- A suggestion shown at an empty buffer via a fallback context (ancestor
+  directory, no directory, or a shorter history window) used to vanish the
+  instant you typed its own first character. `predictFallback` stopped at
+  the exact-directory level unconditionally whenever a prefix was supplied,
+  even when that level had nothing - so a query scoped to a directory with
+  no exact-context data of its own returned zero suggestions the moment you
+  started typing, and the shell would fall back to `zsh-autosuggestions`'
+  own guess instead, reading as hunch "changing its mind." The prefix-scoped
+  and unfiltered queries now walk the same ladder; `filterByPrefix` (already
+  in place) is what keeps a broadened match relevant to what's being typed,
+  so a fallback-sourced suggestion that's still a valid continuation of the
+  prefix survives instead of disappearing.
+
 ## v0.2.0 - 2026-08-01
 
 ### Fixed
