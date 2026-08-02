@@ -21,11 +21,19 @@ type Options struct {
 	AcceptKeys    []string `toml:"accept_keys"`
 	DaemonBin     string   `toml:"daemon_bin"`
 	HalfLifeHours int      `toml:"half_life_hours"`
-	Alpha         float64  `toml:"alpha"`
-	Beta          float64  `toml:"beta"`    // CWD-affinity boost strength
-	Gamma         float64  `toml:"gamma"`   // failure-rate suppression strength
-	Delta         float64  `toml:"delta"`   // prior-outcome boost strength
-	Epsilon       float64  `toml:"epsilon"` // confirmed-acceptance boost strength
+	// MaxIdleDays is a hard cutoff: a transition not seen in this many days
+	// is forgotten regardless of how many times it was ever observed. This is
+	// deliberately separate from HalfLifeHours, which only controls how fast
+	// a still-alive transition's ranking influence fades - a habit run 100
+	// times legitimately keeps some influence longer than a one-off, but
+	// nothing should be suggested from something you haven't touched in
+	// months. 0 disables the cutoff.
+	MaxIdleDays int     `toml:"max_idle_days"`
+	Alpha       float64 `toml:"alpha"`
+	Beta        float64 `toml:"beta"`    // CWD-affinity boost strength
+	Gamma       float64 `toml:"gamma"`   // failure-rate suppression strength
+	Delta       float64 `toml:"delta"`   // prior-outcome boost strength
+	Epsilon     float64 `toml:"epsilon"` // confirmed-acceptance boost strength
 	// MinConfidence is the score a suggestion must reach before it is
 	// offered from a generalized (fallback) context. The exact-context
 	// match is always trusted; broader matches must clear this bar so
@@ -47,6 +55,7 @@ type Options struct {
 func defaults() Options {
 	return Options{
 		HalfLifeHours: 720,
+		MaxIdleDays:   90,
 		Alpha:         0.5,
 		Beta:          0.75,
 		Gamma:         0.5,
@@ -65,7 +74,7 @@ func defaults() Options {
 // Env overrides (applied after config file):
 //
 //	HUNCH_SOCKET, HUNCH_DB_PATH, HUNCH_ACCEPT_KEYS (comma-sep),
-//	HUNCH_DAEMON_BIN, HUNCH_HALF_LIFE_HOURS, HUNCH_ALPHA,
+//	HUNCH_DAEMON_BIN, HUNCH_HALF_LIFE_HOURS, HUNCH_MAX_IDLE_DAYS, HUNCH_ALPHA,
 //	HUNCH_BETA, HUNCH_GAMMA, HUNCH_DELTA, HUNCH_EPSILON,
 //	HUNCH_EXTRA_PARENTS (comma-sep), HUNCH_IGNORE (comma-sep regexes),
 //	HUNCH_LOG_LEVEL
@@ -99,6 +108,11 @@ func LoadConfig() Options {
 	if v := os.Getenv("HUNCH_HALF_LIFE_HOURS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			opts.HalfLifeHours = n
+		}
+	}
+	if v := os.Getenv("HUNCH_MAX_IDLE_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			opts.MaxIdleDays = n
 		}
 	}
 	if v := os.Getenv("HUNCH_ALPHA"); v != "" {
@@ -164,4 +178,13 @@ func LoadConfig() Options {
 // HalfLife returns the decay half-life as a time.Duration.
 func (o Options) HalfLife() time.Duration {
 	return time.Duration(o.HalfLifeHours) * time.Hour
+}
+
+// MaxIdle returns the hard idle cutoff as a time.Duration, or 0 (disabled)
+// if MaxIdleDays is not positive.
+func (o Options) MaxIdle() time.Duration {
+	if o.MaxIdleDays <= 0 {
+		return 0
+	}
+	return time.Duration(o.MaxIdleDays) * 24 * time.Hour
 }

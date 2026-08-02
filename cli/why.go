@@ -98,6 +98,37 @@ func printExplainResult(resp ipc.ExplainResponse) {
 	fmt.Println("DECAY is the time-recency weight (1.0 = just observed). CWD/PRIOR/ACCEPT/FAIL are")
 	fmt.Println("the fraction of this candidate's observations that had that signal; '-' means the")
 	fmt.Println("boost is off or no data exists, so it left the score unchanged.")
+
+	printHydrationCandidates(resp.Breakdown)
+}
+
+// printHydrationCandidates shows, for any candidate whose literal argument
+// was genuinely ambiguous (more than one plausible concrete command), which
+// ones were considered and how they ranked - the same confidence question as
+// the score table above, but for the exact command text rather than the
+// shape.
+func printHydrationCandidates(breakdown []ipc.ScoreBreakdownJSON) {
+	any := false
+	for _, b := range breakdown {
+		if len(b.HydrationCandidates) < 2 {
+			continue
+		}
+		if !any {
+			fmt.Println()
+			fmt.Println("Some candidates had more than one plausible literal command - shown here")
+			fmt.Println("because none clearly won; live cycling (Alt-n/Alt-p) pages through these too.")
+			any = true
+		}
+		best := b.HydrationCandidates[0].Score
+		fmt.Printf("\n  %s:\n", b.Next)
+		for i, c := range b.HydrationCandidates {
+			rel := "-"
+			if best > 0 {
+				rel = fmt.Sprintf("%.0f%%", 100*c.Score/best)
+			}
+			fmt.Printf("    %d. %-40s %s\n", i+1, c.Raw, rel)
+		}
+	}
 }
 
 func pct(f float64) string {

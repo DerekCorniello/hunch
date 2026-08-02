@@ -63,14 +63,14 @@ func BenchmarkTokenize(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, cmd := range cmds {
-			_ = tokenize(cmd)
+			_ = Tokenize(cmd)
 		}
 	}
 }
 
 func BenchmarkClassifyTokens(b *testing.B) {
 	b.ReportAllocs()
-	tokens := tokenize("kubectl get pods -n production -o wide --field-selector=status.phase=Running")
+	tokens := Tokenize("kubectl get pods -n production -o wide --field-selector=status.phase=Running")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = classifyTokens(tokens, DefaultParents)

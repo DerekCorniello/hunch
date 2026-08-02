@@ -188,21 +188,6 @@ func entryToTransition(state []string, next string, e *entry) Transition {
 	}
 }
 
-// scale applies a decay factor to an integer counter. The result is the
-// smallest integer >= n * factor, subject to a floor of 1 when n > 0, so
-// that active transitions with very small decay do not drop to zero and
-// get pruned on the next pass. Scaling does not increase the counter.
-func scale(n int, factor float64) int {
-	if n == 0 || factor >= 1 {
-		return n
-	}
-	s := int(math.Ceil(float64(n) * factor))
-	if s < 1 {
-		s = 1
-	}
-	return s
-}
-
 // copyCWDs returns a copy of a CWD histogram, or nil if empty.
 func copyCWDs(m map[string]int) map[string]int {
 	if len(m) == 0 {
@@ -225,14 +210,23 @@ type DecayResult struct {
 	Orphaned []string
 }
 
-// Decay prunes transitions whose effective weight falls below epsilon and
-// returns what was removed. The effective weight is count * 0.5^(age/halfLife),
-// so a single observation halves in weight every halfLife.
+// Decay prunes transitions whose effective weight falls below epsilon, or
+// whose age exceeds maxIdle regardless of weight, and returns what was
+// removed. The effective weight is count * 0.5^(age/halfLife), so a single
+// observation halves in weight every halfLife; pass maxIdle <= 0 to disable
+// the hard cutoff.
 //
-// For surviving entries the count and sub-counters (NextSuccess, PriorFailure,
-// etc.) are scaled by the same decay factor so that old observations
-// gradually lose influence rather than accumulating without bound.
-func (g *Graph) Decay(at time.Time, halfLife time.Duration) DecayResult {
+// Stored counters are never rescaled here - only deleted or left untouched.
+// Predict already recomputes weight fresh from the stored count and
+// LastSeen at query time, so a surviving entry needs no pre-decayed copy of
+// its own count for ranking to stay correct. Rescaling counters on every
+// sweep here was tried and removed: since age is measured from the original
+// LastSeen (which does not change between sweeps), reapplying decay(age) to
+// an already-shrunk count on each pass compounds - the effective decay
+// exponent grows like the square of the number of sweeps elapsed rather
+// than linearly, so idle data vanished in weeks instead of the ~10
+// half-lives (e.g. ~10 months at the 30-day default) this formula intends.
+func (g *Graph) Decay(at time.Time, halfLife, maxIdle time.Duration) DecayResult {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -244,21 +238,12 @@ func (g *Graph) Decay(at time.Time, halfLife time.Duration) DecayResult {
 			age := at.Sub(e.lastSeen)
 			decay := math.Exp(-math.Ln2 * float64(age) / float64(halfLife))
 			weight := float64(e.count) * decay
-			if weight < epsilon {
+			stale := maxIdle > 0 && age > maxIdle
+			if weight < epsilon || stale {
 				stateCopy := make([]string, len(state))
 				copy(stateCopy, state)
 				pruned = append(pruned, Transition{State: stateCopy, Next: next})
 				delete(inner, next)
-				continue
-			}
-			e.count = scale(e.count, decay)
-			e.nextSuccess = scale(e.nextSuccess, decay)
-			e.nextFailure = scale(e.nextFailure, decay)
-			e.priorSuccess = scale(e.priorSuccess, decay)
-			e.priorFailure = scale(e.priorFailure, decay)
-			e.accepted = scale(e.accepted, decay)
-			for cwd := range e.cwds {
-				e.cwds[cwd] = scale(e.cwds[cwd], decay)
 			}
 		}
 		if len(inner) == 0 {

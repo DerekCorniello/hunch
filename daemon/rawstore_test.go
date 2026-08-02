@@ -102,7 +102,7 @@ func TestRawStoreHydrateIsContextConditioned(t *testing.T) {
 		{[]string{"cargo build"}, "cd target"},
 	} {
 		suggestions := []types.Suggestion{{Template: "cd STR"}}
-		s.hydrate(suggestions, tt.state, "", nil, now)
+		suggestions = s.hydrate(suggestions, tt.state, "", nil, now, 0)
 		if suggestions[0].Raw != tt.want {
 			t.Errorf("after %v: raw = %q, want %q", tt.state, suggestions[0].Raw, tt.want)
 		}
@@ -117,7 +117,7 @@ func TestRawStoreHydrateFallsBackToShorterState(t *testing.T) {
 	s.record(nil, "cargo run", "cargo run --release", now)
 
 	suggestions := []types.Suggestion{{Template: "cargo run"}}
-	s.hydrate(suggestions, []string{"never seen", "also unseen"}, "", nil, now)
+	suggestions = s.hydrate(suggestions, []string{"never seen", "also unseen"}, "", nil, now, 0)
 
 	if suggestions[0].Raw != "cargo run --release" {
 		t.Errorf("raw = %q, want the context-free fallback", suggestions[0].Raw)
@@ -136,7 +136,7 @@ func TestRawStoreHydratePrefersPrefixMatch(t *testing.T) {
 	s.record(nil, "git push", "git push upstream main", now)
 
 	suggestions := []types.Suggestion{{Template: "git push"}}
-	s.hydrate(suggestions, nil, "git push up", nil, now)
+	suggestions = s.hydrate(suggestions, nil, "git push up", nil, now, 0)
 
 	if suggestions[0].Raw != "git push upstream main" {
 		t.Errorf("raw = %q, want the prefix match despite lower count", suggestions[0].Raw)
@@ -149,7 +149,7 @@ func TestRawStoreHydrateFallsBackWhenNoPrefixMatches(t *testing.T) {
 	s.record(nil, "git push", "git push origin main", now)
 
 	suggestions := []types.Suggestion{{Template: "git push"}}
-	s.hydrate(suggestions, nil, "totally different", nil, now)
+	suggestions = s.hydrate(suggestions, nil, "totally different", nil, now, 0)
 
 	if suggestions[0].Raw != "git push origin main" {
 		t.Errorf("raw = %q, want the overall best when no raw matches the prefix", suggestions[0].Raw)
@@ -168,7 +168,7 @@ func TestRawStoreRecencyOutweighsStaleCount(t *testing.T) {
 	s.record(nil, "make STR", "make current", now)
 
 	suggestions := []types.Suggestion{{Template: "make STR"}}
-	s.hydrate(suggestions, nil, "", nil, now)
+	suggestions = s.hydrate(suggestions, nil, "", nil, now, 0)
 
 	if suggestions[0].Raw != "make current" {
 		t.Errorf("raw = %q, want the recent entry to beat the decayed one", suggestions[0].Raw)
@@ -185,10 +185,135 @@ func TestRawStoreArgTokenBoost(t *testing.T) {
 	s.record(nil, "vim PATH", "vim handlers.go", now)
 
 	suggestions := []types.Suggestion{{Template: "vim PATH"}}
-	s.hydrate(suggestions, nil, "", []string{"handlers.go"}, now)
+	suggestions = s.hydrate(suggestions, nil, "", []string{"handlers.go"}, now, 0)
 
 	if suggestions[0].Raw != "vim handlers.go" {
 		t.Errorf("raw = %q, want the token-boosted entry", suggestions[0].Raw)
+	}
+}
+
+// When the top suggestion's hydration is genuinely ambiguous - two
+// directories close enough in score that neither clearly wins - hydrate
+// should offer both as extra candidates without displacing other
+// suggestions, so cycling can page between them. limit=0 (unlimited) here,
+// so there's no headroom cap to worry about.
+func TestRawStoreHydrateExpandsAmbiguousTop(t *testing.T) {
+	s := newRawStore(testHalfLife)
+	now := time.Now()
+
+	for i := 0; i < 3; i++ {
+		s.record(nil, "cd PATH", "cd repo-a", now)
+	}
+	for i := 0; i < 2; i++ {
+		s.record(nil, "cd PATH", "cd repo-b", now)
+	}
+	s.record(nil, "ls", "ls -la", now)
+
+	suggestions := []types.Suggestion{{Template: "cd PATH"}, {Template: "ls"}}
+	got := s.hydrate(suggestions, nil, "", nil, now, 0)
+
+	if len(got) != 3 {
+		t.Fatalf("got %d suggestions, want 3 (2 hydrations of cd PATH + ls, unlimited)", len(got))
+	}
+	if got[0].Template != "cd PATH" || got[1].Template != "cd PATH" {
+		t.Fatalf("expected the first two slots to hold the ambiguous top template, got %+v", got)
+	}
+	if got[0].Raw == got[1].Raw {
+		t.Errorf("expected two distinct hydration candidates, got the same raw twice: %q", got[0].Raw)
+	}
+	raws := map[string]bool{got[0].Raw: true, got[1].Raw: true}
+	if !raws["cd repo-a"] || !raws["cd repo-b"] {
+		t.Errorf("expected both candidate directories represented, got raws %v", raws)
+	}
+	if got[2].Template != "ls" {
+		t.Errorf("expected ls to survive unaffected as the third slot, got %+v", got[2])
+	}
+}
+
+// A tight limit with no headroom should not expand - and, critically, should
+// not drop the other suggestion either. Only unlimited or generous limits
+// get the extra candidate.
+func TestRawStoreHydrateNoExpansionWithoutHeadroom(t *testing.T) {
+	s := newRawStore(testHalfLife)
+	now := time.Now()
+
+	for i := 0; i < 3; i++ {
+		s.record(nil, "cd PATH", "cd repo-a", now)
+	}
+	for i := 0; i < 2; i++ {
+		s.record(nil, "cd PATH", "cd repo-b", now)
+	}
+	s.record(nil, "ls", "ls -la", now)
+
+	suggestions := []types.Suggestion{{Template: "cd PATH"}, {Template: "ls"}}
+	got := s.hydrate(suggestions, nil, "", nil, now, 2) // limit == len(suggestions): no room
+
+	if len(got) != 2 {
+		t.Fatalf("got %d suggestions, want 2 (limit leaves no headroom to expand)", len(got))
+	}
+	if got[0].Template != "cd PATH" || got[1].Template != "ls" {
+		t.Fatalf("expected both original suggestions preserved, got %+v", got)
+	}
+}
+
+// This is the scenario that matters most in practice: only one template is
+// known for a context (so there's nothing to "borrow" from), but the caller
+// asked for more suggestions than that. The ambiguous top template should
+// still be allowed to expand into the request's own headroom.
+func TestRawStoreHydrateExpandsIntoRequestedLimitWhenOnlyOneTemplate(t *testing.T) {
+	s := newRawStore(testHalfLife)
+	now := time.Now()
+
+	for i := 0; i < 3; i++ {
+		s.record(nil, "cd PATH", "cd repo-a", now)
+	}
+	for i := 0; i < 2; i++ {
+		s.record(nil, "cd PATH", "cd repo-b", now)
+	}
+
+	suggestions := []types.Suggestion{{Template: "cd PATH"}}
+	got := s.hydrate(suggestions, nil, "", nil, now, 2) // asked for up to 2, only 1 template exists
+
+	if len(got) != 2 {
+		t.Fatalf("got %d suggestions, want 2 (expand into the caller's requested headroom)", len(got))
+	}
+	raws := map[string]bool{got[0].Raw: true, got[1].Raw: true}
+	if !raws["cd repo-a"] || !raws["cd repo-b"] {
+		t.Errorf("expected both candidate directories represented, got raws %v", raws)
+	}
+
+	// With no limit and only one template, still expand up to
+	// maxHydrationCandidates rather than staying stuck at 1.
+	suggestions = []types.Suggestion{{Template: "cd PATH"}}
+	got = s.hydrate(suggestions, nil, "", nil, now, 0)
+	if len(got) != 2 {
+		t.Fatalf("unlimited: got %d suggestions, want 2", len(got))
+	}
+}
+
+// When one hydration candidate clearly dominates, the top suggestion should
+// not claim extra slots from the rest of the list.
+func TestRawStoreHydrateNoExpansionWhenClearWinner(t *testing.T) {
+	s := newRawStore(testHalfLife)
+	now := time.Now()
+
+	for i := 0; i < 10; i++ {
+		s.record(nil, "cd PATH", "cd repo-a", now)
+	}
+	s.record(nil, "cd PATH", "cd repo-b", now)
+	s.record(nil, "ls", "ls -la", now)
+
+	suggestions := []types.Suggestion{{Template: "cd PATH"}, {Template: "ls"}}
+	got := s.hydrate(suggestions, nil, "", nil, now, 0)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d suggestions, want 2 (no expansion)", len(got))
+	}
+	if got[0].Template != "cd PATH" || got[0].Raw != "cd repo-a" {
+		t.Errorf("top suggestion = %+v, want cd PATH -> cd repo-a", got[0])
+	}
+	if got[1].Template != "ls" {
+		t.Errorf("second suggestion template = %q, want ls (should not be displaced)", got[1].Template)
 	}
 }
 
@@ -245,7 +370,7 @@ func TestRawStoreLoadRoundTripsSnapshot(t *testing.T) {
 	}
 
 	suggestions := []types.Suggestion{{Template: "cargo build"}}
-	dst.hydrate(suggestions, []string{"cd PATH"}, "", nil, now)
+	suggestions = dst.hydrate(suggestions, []string{"cd PATH"}, "", nil, now, 0)
 	if suggestions[0].Raw != "cargo build --release" {
 		t.Errorf("context was lost across the round trip: raw = %q", suggestions[0].Raw)
 	}
@@ -304,7 +429,7 @@ func TestRawStoreConcurrentAccess(t *testing.T) {
 				s.record(nil, "ls", "ls -la", now)
 				s.snapshot()
 				suggestions := []types.Suggestion{{Template: "ls"}}
-				s.hydrate(suggestions, nil, "", nil, now)
+				_ = s.hydrate(suggestions, nil, "", nil, now, 0)
 			}
 		}(i)
 	}

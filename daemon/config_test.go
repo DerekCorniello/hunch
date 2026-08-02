@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -29,12 +30,26 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if opts.HalfLife() == 0 {
 		t.Error("HalfLife() returned zero duration")
 	}
+	if opts.MaxIdleDays != 90 {
+		t.Errorf("MaxIdleDays = %d, want 90", opts.MaxIdleDays)
+	}
+	if want := 90 * 24 * time.Hour; opts.MaxIdle() != want {
+		t.Errorf("MaxIdle() = %v, want %v", opts.MaxIdle(), want)
+	}
+}
+
+func TestMaxIdleDisabled(t *testing.T) {
+	opts := Options{MaxIdleDays: 0}
+	if got := opts.MaxIdle(); got != 0 {
+		t.Errorf("MaxIdle() with MaxIdleDays=0 = %v, want 0 (disabled)", got)
+	}
 }
 
 func TestLoadConfigEnvOverrides(t *testing.T) {
 	t.Setenv("HUNCH_SOCKET", "/tmp/test.sock")
 	t.Setenv("HUNCH_DB_PATH", "/tmp/test.db")
 	t.Setenv("HUNCH_HALF_LIFE_HOURS", "168")
+	t.Setenv("HUNCH_MAX_IDLE_DAYS", "30")
 	t.Setenv("HUNCH_ALPHA", "1.0")
 	t.Setenv("HUNCH_LOG_LEVEL", "debug")
 	t.Setenv("HUNCH_ACCEPT_KEYS", "tab,right")
@@ -50,6 +65,9 @@ func TestLoadConfigEnvOverrides(t *testing.T) {
 	}
 	if opts.HalfLifeHours != 168 {
 		t.Errorf("HalfLifeHours = %d, want 168", opts.HalfLifeHours)
+	}
+	if opts.MaxIdleDays != 30 {
+		t.Errorf("MaxIdleDays = %d, want 30", opts.MaxIdleDays)
 	}
 	if opts.Alpha != 1.0 {
 		t.Errorf("Alpha = %f, want 1.0", opts.Alpha)

@@ -120,9 +120,9 @@ func TestTokenize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tokenize(tt.input)
+			got := Tokenize(tt.input)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("tokenize(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("Tokenize(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}

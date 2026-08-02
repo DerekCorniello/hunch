@@ -2,10 +2,10 @@ package normalize
 
 import "strings"
 
-// tokenize splits a raw command string into tokens, respecting shell quotes.
+// Tokenize splits a raw command string into tokens, respecting shell quotes.
 // Shell operators (|, &&, ||, ;) are emitted as standalone tokens even without
 // surrounding whitespace. Returns unquoted token values.
-func tokenize(raw string) []string {
+func Tokenize(raw string) []string {
 	var tokens []string
 	var current strings.Builder
 	inSingle := false

@@ -5,6 +5,25 @@
 ## v0.2.0 - 2026-08-01
 
 ### Fixed
+- Decay no longer compounds. `Graph.Decay` used to reapply
+  `count * 0.5^(age/halfLife)` to an already-shrunk count on every daily
+  sweep, using the full age since the observation rather than the time since
+  the last sweep - so the effective decay exponent grew like the square of
+  the number of sweeps elapsed, not linearly. A single-observation transition
+  was pruned in ~24 days at the default 30-day half-life instead of the
+  ~300 days (10 half-lives) the documented formula implies. Stored counters
+  are no longer rescaled during sweeps at all; predict already recomputes
+  weight fresh from the stored count and timestamp, so nothing but the prune
+  decision needed it, and that decision is correct once the count isn't
+  corrupted by prior sweeps. `hunch stats`/`export`/`why` now show true
+  historical counts rather than a synthetic partially-decayed number.
+- Hydration's argument-reuse boost only looked at the last 2 commands;
+  widened to 5 so a file or repo name mentioned a few commands back still
+  gets credit instead of losing to a stale-but-frequent example.
+- Hydration's argument-reuse boost matched by substring
+  (`strings.Contains`), so a token like `"test"` incorrectly boosted any raw
+  containing it anywhere (`"protest"`, `"attestation"`, inside an unrelated
+  flag or path). Now matches whole tokens only.
 - `hunch reset` works whether or not a daemon is running, and never starts one.
   With a daemon up it resets over IPC so the in-memory graph is cleared too;
   with none running it just deletes the database files. Wiping data should not
@@ -71,6 +90,21 @@
 - `min_confidence` (`HUNCH_MIN_CONFIDENCE`, default `0.20`) sets the score a
   generalized match must reach before it is shown. Exact-context matches are
   always shown. Set it to `1` to only ever show exact matches.
+- `max_idle_days` (`HUNCH_MAX_IDLE_DAYS`, default `90`) - a flat cutoff
+  separate from `half_life_hours`: a transition untouched for this many days
+  is forgotten regardless of count, while `half_life_hours` continues to
+  control how fast a still-alive transition's ranking influence fades (a
+  frequently-used habit legitimately taking a bit longer to fade than a
+  one-off is intentional, not a bug). Set to `0` to disable.
+- Hydration ambiguity is now visible and cycle-able. When the top
+  suggestion's best and next-best literal candidates are genuinely close in
+  score (not a clear win), it claims extra slots for those alternates
+  instead of silently picking one - filling unused headroom under the
+  caller's requested limit rather than displacing other suggestions. The
+  zsh integration's cycling (Alt-n/Alt-p) already treats its candidate list
+  as flat and ranked, so this required no changes there. `hunch why` /
+  `hunch client explain` also now show these candidates and their relative
+  scores for any template whose hydration was ambiguous.
 - `hunch why` (and `hunch client explain`) explains the scoring behind a
   suggestion instead of asking you to trust it: which fallback context
   answered (exact directory, ancestor directory, no directory, or a shorter

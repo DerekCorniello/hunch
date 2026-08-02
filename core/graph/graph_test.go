@@ -327,7 +327,7 @@ func TestGraphDecayKeepsRecent(t *testing.T) {
 	before := g.Size()
 
 	after := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	res := g.Decay(after, 720*time.Hour)
+	res := g.Decay(after, 720*time.Hour, 0)
 
 	// Recent entry (one month old, 30-day half-life) should survive decay.
 	if len(res.Pruned) != 0 {
@@ -346,6 +346,74 @@ func TestGraphDecayKeepsRecent(t *testing.T) {
 	}
 }
 
+// TestGraphDecayRepeatedSweepsDoNotCompound guards against a regression where
+// calling Decay on a fixed daily cadence (as the daemon's ticker does)
+// compounded: each sweep reapplied decay(full age since lastSeen) to a count
+// already shrunk by the previous sweep, so an idle single-observation entry
+// was pruned in ~24 days at a 30-day half-life instead of the ~10 half-lives
+// (~300 days) the documented formula (count * 0.5^(age/halfLife)) implies.
+func TestGraphDecayRepeatedSweepsDoNotCompound(t *testing.T) {
+	g := New(2)
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	g.Record([]string{"", "cmd"}, "next", start)
+
+	const halfLife = 30 * 24 * time.Hour
+
+	// Sweep daily, as the daemon's decayLoop does, with no further
+	// observations. A single-observation entry should still be alive at 200
+	// days (well under the ~300-day full-decay point) - the compounding bug
+	// pruned it by day ~24.
+	for day := 1; day <= 200; day++ {
+		at := start.Add(time.Duration(day) * 24 * time.Hour)
+		res := g.Decay(at, halfLife, 0)
+		if len(res.Pruned) != 0 {
+			t.Fatalf("entry pruned after %d daily sweeps (compounding regression), want it to survive to ~300 days", day)
+		}
+	}
+
+	transitions := g.Transitions([]string{"", "cmd"})
+	if len(transitions) != 1 {
+		t.Fatalf("Transitions after 200 daily sweeps = %d, want 1 (still alive)", len(transitions))
+	}
+}
+
+// TestGraphDecayMaxIdlePrunesRegardlessOfCount checks the hard idle cutoff:
+// even a heavily-used transition (which the weight/epsilon check alone would
+// keep alive far longer) is removed once it hasn't been seen in maxIdle.
+func TestGraphDecayMaxIdlePrunesRegardlessOfCount(t *testing.T) {
+	g := New(2)
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for range 500 {
+		g.Record([]string{"", "cmd"}, "habit", start)
+	}
+
+	const halfLife = 30 * 24 * time.Hour
+	const maxIdle = 90 * 24 * time.Hour
+
+	after := start.Add(91 * 24 * time.Hour)
+
+	// Sanity check: at the weight/epsilon threshold alone (maxIdle disabled),
+	// 500 observations at 91 days old with a 30-day half-life are nowhere
+	// near epsilon, so this transition would otherwise survive.
+	weightOnly := New(2)
+	for range 500 {
+		weightOnly.Record([]string{"", "cmd"}, "habit", start)
+	}
+	if res := weightOnly.Decay(after, halfLife, 0); len(res.Pruned) != 0 {
+		t.Fatalf("sanity check failed: weight-only decay pruned a 500-count transition at 91 days")
+	}
+
+	res := g.Decay(after, halfLife, maxIdle)
+	if len(res.Pruned) != 1 {
+		t.Fatalf("Pruned = %d, want 1 (maxIdle cutoff should remove it regardless of count)", len(res.Pruned))
+	}
+	if g.Size() != 0 {
+		t.Errorf("Size after maxIdle decay = %d, want 0", g.Size())
+	}
+}
+
 func TestGraphDecayPrunesStaleAndReportsOrphan(t *testing.T) {
 	g := New(2)
 
@@ -354,7 +422,7 @@ func TestGraphDecayPrunesStaleAndReportsOrphan(t *testing.T) {
 	g.Record([]string{"", "a"}, "stale", veryOld)
 	g.Record([]string{"", "b"}, "fresh", now)
 
-	res := g.Decay(now, 720*time.Hour)
+	res := g.Decay(now, 720*time.Hour, 0)
 
 	if len(res.Pruned) != 1 {
 		t.Fatalf("Pruned = %d, want 1", len(res.Pruned))
@@ -382,7 +450,7 @@ func TestGraphDecayKeepsReferencedTemplate(t *testing.T) {
 	g.Record([]string{"", "a"}, "shared", veryOld)
 	g.Record([]string{"", "b"}, "shared", now)
 
-	res := g.Decay(now, 720*time.Hour)
+	res := g.Decay(now, 720*time.Hour, 0)
 
 	if len(res.Pruned) != 1 {
 		t.Fatalf("Pruned = %d, want 1", len(res.Pruned))

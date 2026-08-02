@@ -108,7 +108,7 @@ func TestZeroLastSeenIsPrunedByDecay(t *testing.T) {
 		t.Fatalf("size after merge = %d, want 1", g.Size())
 	}
 
-	res := g.Decay(time.Now(), 720*time.Hour)
+	res := g.Decay(time.Now(), 720*time.Hour, 0)
 	if len(res.Pruned) != 1 {
 		t.Errorf("decay pruned %d transitions, want 1", len(res.Pruned))
 	}

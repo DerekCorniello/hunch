@@ -129,6 +129,19 @@ type ScoreBreakdownJSON struct {
 
 	EffCount float64 `json:"eff_count"`
 	Score    float64 `json:"score"`
+
+	// HydrationCandidates are the ranked literal commands considered for this
+	// template, most likely first - e.g. two recently-used directories both
+	// competing to fill "cd PATH". Empty when there is only one candidate (no
+	// real ambiguity) or none at all.
+	HydrationCandidates []HydrationCandidateJSON `json:"hydration_candidates,omitempty"`
+}
+
+// HydrationCandidateJSON is one literal command hydration considered for a
+// template, with the score that ranked it.
+type HydrationCandidateJSON struct {
+	Raw   string  `json:"raw"`
+	Score float64 `json:"score"`
 }
 
 // ExplainResponse is an explain response: which fallback rung answered, the

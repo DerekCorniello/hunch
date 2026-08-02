@@ -33,7 +33,7 @@ func Normalize(raw string, parents []string) string {
 	if parents == nil {
 		parents = DefaultParents
 	}
-	tokens := tokenize(raw)
+	tokens := Tokenize(raw)
 	if len(tokens) == 0 {
 		return ""
 	}

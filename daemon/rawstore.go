@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -195,65 +196,168 @@ func (s *rawStore) snapshot() []rawRecord {
 	return records
 }
 
-// hydrate fills in the Raw field of each suggestion with the best matching
-// concrete command. The whole batch is resolved under one read lock so every
-// suggestion sees the same snapshot.
-func (s *rawStore) hydrate(suggestions []types.Suggestion, stateTemplates []string, prefix string, argTokens []string, at time.Time) {
+// hydrationTieThreshold is how close a runner-up hydration's score must be to
+// the best one (as a fraction of it) to count as genuinely ambiguous rather
+// than a clear win. Only then does the top suggestion give up extra slots to
+// alternate literal candidates instead of every suggestion getting exactly
+// one hydration.
+const hydrationTieThreshold = 0.5
+
+// maxHydrationCandidates caps how many literal alternatives the top
+// suggestion can claim, even if more are tied.
+const maxHydrationCandidates = 3
+
+// hydrate fills in the Raw field of each suggestion with its best matching
+// concrete command, resolved under one read lock so every suggestion sees the
+// same snapshot.
+//
+// The top-ranked suggestion is special-cased: if its best and next-best raw
+// candidates are genuinely close (see hydrationTieThreshold) - e.g. two
+// recently-used directories are both plausible for "cd PATH" - it claims a
+// few extra slots for those alternates instead of collapsing to one guess.
+// This lets ghost-text cycling page through literal candidates, not just
+// different command shapes, with no change to the cycling mechanism itself:
+// it already treats the result as a flat ranked list.
+//
+// limit is the caller's original requested cap (0 = unlimited, matching the
+// predict op's convention) and bounds how far this may grow the slice - the
+// extra candidates fill unused headroom under that limit rather than
+// displacing other suggestions. When there is no headroom (the caller asked
+// for exactly as many suggestions as were found), the top suggestion gets
+// its single best hydration, same as before this existed. Returns a new
+// slice; callers must use the return value rather than relying on in-place
+// mutation, and truncate to limit themselves if they need the caller's
+// original bound also applied to the non-expanded case.
+func (s *rawStore) hydrate(suggestions []types.Suggestion, stateTemplates []string, prefix string, argTokens []string, at time.Time, limit int) []types.Suggestion {
+	if len(suggestions) == 0 {
+		return suggestions
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	for i, sug := range suggestions {
-		if raw := s.bestLocked(stateTemplates, sug.Template, prefix, argTokens, at); raw != "" {
-			suggestions[i].Raw = raw
+	top := suggestions[0]
+	ranked := s.topNLocked(stateTemplates, top.Template, prefix, argTokens, at, maxHydrationCandidates)
+
+	// Extra slots the top suggestion may add (not displace): consecutive
+	// runner-ups within hydrationTieThreshold of the best, capped by how much
+	// room is left under limit.
+	headroom := maxHydrationCandidates - 1
+	if limit > 0 {
+		if room := limit - len(suggestions); room < headroom {
+			headroom = room
 		}
 	}
+	extra := 0
+	for extra < headroom && extra+1 < len(ranked) &&
+		ranked[extra+1].Score >= ranked[0].Score*hydrationTieThreshold {
+		extra++
+	}
+
+	out := make([]types.Suggestion, 0, len(suggestions)+extra)
+	if len(ranked) == 0 {
+		out = append(out, top)
+	} else {
+		for i := 0; i <= extra; i++ {
+			sug := top
+			sug.Raw = ranked[i].Raw
+			out = append(out, sug)
+		}
+	}
+
+	for _, sug := range suggestions[1:] {
+		if raw := s.bestLocked(stateTemplates, sug.Template, prefix, argTokens, at); raw != "" {
+			sug.Raw = raw
+		}
+		out = append(out, sug)
+	}
+
+	return out
+}
+
+// topCandidates returns up to n ranked raw hydration candidates for a
+// template in the given context. Unlike hydrate (which picks what to show as
+// ghost text), this is for callers - namely the explain op behind `hunch
+// why` - that want to show hydration confidence itself: which literal
+// commands were considered and how they scored, not just the winner.
+func (s *rawStore) topCandidates(stateTemplates []string, template, prefix string, argTokens []string, at time.Time, n int) []rawScore {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.topNLocked(stateTemplates, template, prefix, argTokens, at, n)
+}
+
+// rawScore pairs a raw command with its hydration score. topNLocked exposes
+// the runner-up candidates behind bestLocked's single pick, so a template
+// hunch is confident about but whose literal argument is genuinely
+// ambiguous (e.g. two recently-used directories for "cd PATH") can offer
+// more than one hydration instead of silently picking one.
+type rawScore struct {
+	Raw   string
+	Score float64
 }
 
 // bestLocked returns the highest-scored raw for a template, trying
 // progressively shorter state windows until a bucket matches. The read lock
 // must be held.
 func (s *rawStore) bestLocked(stateTemplates []string, template, prefix string, argTokens []string, at time.Time) string {
+	ranked := s.topNLocked(stateTemplates, template, prefix, argTokens, at, 1)
+	if len(ranked) == 0 {
+		return ""
+	}
+	return ranked[0].Raw
+}
+
+// topNLocked returns up to n ranked raw candidates for a template, trying
+// progressively shorter state windows until a bucket matches (mirroring
+// bestLocked's backoff). The read lock must be held.
+func (s *rawStore) topNLocked(stateTemplates []string, template, prefix string, argTokens []string, at time.Time, n int) []rawScore {
 	for trim := 0; trim <= len(stateTemplates); trim++ {
 		inner := s.m[rawOuterKey(stateTemplates[trim:], template)]
 		if len(inner) == 0 {
 			continue
 		}
-		if raw := s.selectBest(inner, prefix, argTokens, at); raw != "" {
-			return raw
+		if ranked := s.rankBucket(inner, prefix, argTokens, at, n); len(ranked) > 0 {
+			return ranked
 		}
 	}
-	return ""
+	return nil
 }
 
-// selectBest picks the highest-scored raw from a bucket. With a non-empty
-// prefix it prefers raws that literally start with it, falling back to the
-// overall best when none do.
-func (s *rawStore) selectBest(inner map[string]rawEntry, prefix string, argTokens []string, at time.Time) string {
-	bestRaw, bestScore := "", -1.0
-	bestPrefixRaw, bestPrefixScore := "", -1.0
-
+// rankBucket scores every raw in a bucket and returns the top n, descending
+// by score. With a non-empty prefix it considers only raws that literally
+// start with it, when at least one does, falling back to the overall
+// ranking otherwise - the same preference selectBest used to apply.
+func (s *rawStore) rankBucket(inner map[string]rawEntry, prefix string, argTokens []string, at time.Time, n int) []rawScore {
+	scored := make([]rawScore, 0, len(inner))
+	prefixScored := make([]rawScore, 0, len(inner))
 	for raw, entry := range inner {
-		score := s.score(entry, raw, argTokens, at)
-		if score > bestScore {
-			bestScore = score
-			bestRaw = raw
+		rs := rawScore{Raw: raw, Score: s.score(entry, raw, argTokens, at)}
+		scored = append(scored, rs)
+		if prefix != "" && strings.HasPrefix(raw, prefix) {
+			prefixScored = append(prefixScored, rs)
 		}
-		if prefix != "" && strings.HasPrefix(raw, prefix) && score > bestPrefixScore {
-			bestPrefixScore = score
-			bestPrefixRaw = raw
-		}
+	}
+	if prefix != "" && len(prefixScored) > 0 {
+		scored = prefixScored
 	}
 
-	if prefix != "" && bestPrefixRaw != "" {
-		return bestPrefixRaw
+	sort.Slice(scored, func(i, j int) bool { return scored[i].Score > scored[j].Score })
+	if n > 0 && len(scored) > n {
+		scored = scored[:n]
 	}
-	return bestRaw
+	return scored
 }
 
 // tokenBoost is added per argument token shared with a recent command. It is
 // large enough to override moderate frequency differences, reflecting how
 // strongly a just-mentioned file or script name predicts reuse.
 const tokenBoost = 100.0
+
+// argLookback is how many of the most recent raw commands collectArgTokens
+// scans for reusable argument tokens. Wide enough that a file or repo name
+// mentioned a few commands ago still gets credit, not just the immediately
+// preceding one.
+const argLookback = 5
 
 // score combines observation count with an exponential recency decay matching
 // the graph's half-life, plus a boost for reusing recent argument tokens.
@@ -264,9 +368,15 @@ func (s *rawStore) score(entry rawEntry, raw string, argTokens []string, at time
 	}
 	score := float64(entry.count) * recency
 
-	for _, tok := range argTokens {
-		if strings.Contains(raw, tok) {
-			score += tokenBoost
+	if len(argTokens) > 0 {
+		rawTokens := make(map[string]struct{}, len(argTokens))
+		for _, t := range normalize.Tokenize(raw) {
+			rawTokens[t] = struct{}{}
+		}
+		for _, tok := range argTokens {
+			if _, ok := rawTokens[tok]; ok {
+				score += tokenBoost
+			}
 		}
 	}
 	return score
@@ -280,7 +390,7 @@ func collectArgTokens(rawCmds []string, parents []string) []string {
 	if len(rawCmds) == 0 {
 		return nil
 	}
-	start := max(len(rawCmds)-2, 0)
+	start := max(len(rawCmds)-argLookback, 0)
 
 	var tokens []string
 	seen := make(map[string]struct{})

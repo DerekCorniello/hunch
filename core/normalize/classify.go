@@ -302,7 +302,7 @@ func ExtractArgTokens(raw string, parents []string) []string {
 	if parents == nil {
 		parents = DefaultParents
 	}
-	tokens := tokenize(raw)
+	tokens := Tokenize(raw)
 	tokens = unwrapPrefixTokens(tokens)
 	if len(tokens) == 0 {
 		return nil

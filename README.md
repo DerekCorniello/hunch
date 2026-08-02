@@ -239,6 +239,21 @@ gates: a suggestion needs count >= 2 always; a fallback context also needs score
 `-` means that boost is either disabled or has no data for this candidate, so
 it left the score unchanged rather than pulling it up or down.
 
+Scoring is only half the picture: a template like `cd PATH` still has to be
+filled in with an actual directory, and sometimes more than one is plausible
+(you've `cd`'d into two different repos recently, say). When that hydration
+is genuinely ambiguous, `hunch why` shows what was considered:
+
+```text
+  cd PATH:
+    1. cd hunch                             100%
+    2. cd my-other-project                  74%
+```
+
+The same ambiguity is what live cycling (Alt-n/Alt-p) pages through in the
+shell - if hunch is confident about the shape but unsure which directory,
+you're not stuck with its first guess.
+
 ### `hunch daemon <action>`
 
 Manage the background daemon process.
@@ -358,6 +373,7 @@ hunch predict --state "git add,git commit" --limit 5
 | `HUNCH_DB_PATH` | SQLite database path | `~/.local/share/hunch.db` |
 | `HUNCH_DAEMON_BIN` | Daemon binary path | (same as `hunch`) |
 | `HUNCH_HALF_LIFE_HOURS` | Decay half-life | `720` (30 days) |
+| `HUNCH_MAX_IDLE_DAYS` | Hard cutoff: forget a transition untouched for this many days, regardless of count | `90` (`0` disables) |
 | `HUNCH_ALPHA` | Additive smoothing | `0.5` |
 | `HUNCH_BETA` | CWD-affinity boost strength | `0.75` |
 | `HUNCH_GAMMA` | Failure-rate suppression strength | `0.5` |
@@ -372,6 +388,15 @@ hunch predict --state "git add,git commit" --limit 5
 Each scoring strength (`beta`/`gamma`/`delta`/`epsilon`) is a soft,
 multiplicative adjustment that is the identity when its signal is absent; set
 any to `0` to disable that signal.
+
+`half_life_hours` and `max_idle_days` control two different things and are
+intentionally separate. `half_life_hours` governs how fast a *still-alive*
+transition's ranking influence fades - a command you ran 100 times legitimately
+keeps some pull longer than a one-off, and that's by design. `max_idle_days` is
+a flat, evidence-independent backstop: once you haven't touched something in
+that many days, it's forgotten outright, no matter how much of a habit it used
+to be. Set `max_idle_days = 0` to disable the hard cutoff and rely on
+half-life decay alone.
 
 `min_count` is how many times you must have run a command in a given context
 before hunch will suggest it. The default of `2` means one-off commands are
@@ -404,6 +429,7 @@ Hunch looks for `config.toml` in the XDG config directory:
 socket = "/run/user/1000/hunch.sock"
 db_path = "/var/lib/hunch/hunch.db"
 half_life_hours = 720
+max_idle_days = 90     # forget anything untouched this long, regardless of count
 alpha = 0.5
 beta = 0.75    # CWD-affinity boost
 gamma = 0.5    # failure-rate suppression

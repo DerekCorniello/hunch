@@ -311,7 +311,7 @@ func (d *daemon) decay() {
 	d.flushMu.Lock()
 	defer d.flushMu.Unlock()
 
-	res := d.g.Load().Decay(time.Now(), d.opts.HalfLife())
+	res := d.g.Load().Decay(time.Now(), d.opts.HalfLife(), d.opts.MaxIdle())
 	if len(res.Pruned) == 0 && len(res.Orphaned) == 0 {
 		return
 	}

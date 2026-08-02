@@ -231,7 +231,7 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 			stateTemplates = append(stateTemplates, cmd.Template)
 		}
 	}
-	d.raws.hydrate(suggestions, stateTemplates, req.Prefix, argTokens, at)
+	suggestions = d.raws.hydrate(suggestions, stateTemplates, req.Prefix, argTokens, at, req.Limit)
 
 	d.respondSuggestions(conn, suggestions)
 }
@@ -276,13 +276,28 @@ func (d *daemon) handleExplain(conn net.Conn, req ipc.Request) {
 		PriorOutcome: types.Outcome(req.PriorOutcome),
 	}, at, limit)
 
+	jsonBreakdown := ipc.BreakdownFromPredict(breakdown)
+	argTokens := collectArgTokens(req.State, d.parents)
+	for i := range jsonBreakdown {
+		ranked := d.raws.topCandidates(stateTemplates, jsonBreakdown[i].Next, req.Prefix, argTokens, at, maxHydrationCandidates)
+		if len(ranked) < 2 {
+			// A single (or no) candidate isn't ambiguous - nothing to explain.
+			continue
+		}
+		candidates := make([]ipc.HydrationCandidateJSON, len(ranked))
+		for j, r := range ranked {
+			candidates[j] = ipc.HydrationCandidateJSON{Raw: r.Raw, Score: r.Score}
+		}
+		jsonBreakdown[i].HydrationCandidates = candidates
+	}
+
 	d.respondJSON(conn, "explain", ipc.ExplainResponse{
 		Level:         fr.level,
 		State:         stateTemplates,
 		CWD:           fr.cwd,
 		MinConfidence: d.opts.MinConfidence,
 		MinCount:      d.opts.MinCount,
-		Breakdown:     ipc.BreakdownFromPredict(breakdown),
+		Breakdown:     jsonBreakdown,
 	})
 }
 
