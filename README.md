@@ -151,6 +151,91 @@ just won't get the shell-integrated ghost text.
 
 ---
 
+## Configuration
+
+### Environment variables
+
+| Variable | Field | Default |
+|----------|-------|---------|
+| `HUNCH_BIN` | Binary path | `hunch` (from PATH) |
+| `HUNCH_SOCKET` | Unix socket path | `~/.cache/hunch.sock` |
+| `HUNCH_DB_PATH` | SQLite database path | `~/.local/share/hunch.db` |
+| `HUNCH_DAEMON_BIN` | Daemon binary path | (same as `hunch`) |
+| `HUNCH_HALF_LIFE_HOURS` | Decay half-life | `720` (30 days) |
+| `HUNCH_MAX_IDLE_DAYS` | Hard cutoff: forget a transition untouched for this many days, regardless of count | `90` (`0` disables) |
+| `HUNCH_ALPHA` | Additive smoothing | `0.5` |
+| `HUNCH_BETA` | CWD-affinity boost strength | `0.75` |
+| `HUNCH_GAMMA` | Failure-rate suppression strength | `0.5` |
+| `HUNCH_DELTA` | Prior-outcome boost strength | `0.5` |
+| `HUNCH_EPSILON` | Confirmed-acceptance boost strength | `0.5` |
+| `HUNCH_MIN_CONFIDENCE` | Score a generalized match must reach to be shown | `0.10` |
+| `HUNCH_MIN_COUNT` | Times a command must have been seen before it is suggested | `2` |
+| `HUNCH_EXTRA_PARENTS` | Extra parent commands (comma-separated) | (none) |
+| `HUNCH_IGNORE` | Extra regexes for sensitive commands to never record (comma-separated) | (none) |
+| `HUNCH_LOG_LEVEL` | Log level | `info` |
+
+Each scoring strength (`beta`/`gamma`/`delta`/`epsilon`) is a soft,
+multiplicative adjustment that is the identity when its signal is absent; set
+any to `0` to disable that signal.
+
+`half_life_hours` and `max_idle_days` control two different things and are
+intentionally separate. `half_life_hours` governs how fast a *still-alive*
+transition's ranking influence fades - a command you ran 100 times legitimately
+keeps some pull longer than a one-off, and that's by design. `max_idle_days` is
+a flat, evidence-independent backstop: once you haven't touched something in
+that many days, it's forgotten outright, no matter how much of a habit it used
+to be. Set `max_idle_days = 0` to disable the hard cutoff and rely on
+half-life decay alone.
+
+`min_count` is how many times you must have run a command in a given context
+before hunch will suggest it. The default of `2` means one-off commands are
+never suggested: hunch predicts habits, and a habit is repeated by definition.
+This matters more than it sounds, because a command run once in a context you
+never revisit is the only candidate for that state, so it scores as the most
+confident suggestion possible on the least evidence possible. Set it to `1` to
+be suggested everything, including things you ran once by accident.
+
+`min_confidence` controls how readily hunch generalizes. An exact-context match
+is always shown. When there is no exact match, hunch widens the context (drop
+the directory, then drop the oldest command) and shows the result only if it
+scores at least this high. Lower it to see suggestions more often at the cost
+of more wrong ones; set it to `1` to suppress generalized suggestions entirely
+and only ever show exact-context matches. Sensitive commands matching a built-in or
+`HUNCH_IGNORE` pattern are never recorded (neither the transition nor the raw
+command), so secrets are not persisted or suggested back.
+
+### Config file
+
+Hunch looks for `config.toml` in the XDG config directory:
+
+| OS | Config path |
+|----|-------------|
+| Linux | `~/.config/hunch/config.toml` |
+| macOS | `~/.config/hunch/config.toml` |
+| Windows | `%AppData%\hunch\config.toml` |
+
+```toml
+socket = "/run/user/1000/hunch.sock"
+db_path = "/var/lib/hunch/hunch.db"
+half_life_hours = 720
+max_idle_days = 90     # forget anything untouched this long, regardless of count
+alpha = 0.5
+beta = 0.75    # CWD-affinity boost
+gamma = 0.5    # failure-rate suppression
+delta = 0.5    # prior-outcome boost
+epsilon = 0.5  # confirmed-acceptance boost
+min_confidence = 0.10  # bar for suggestions from a generalized context
+min_count = 2          # ignore commands you have only run once
+accept_keys = ["right", "end"]
+extra_parents = ["mycli", "teamtool"]
+ignore = ['(?i)--api-token']  # extra sensitive-command patterns to never record
+log_level = "info"
+```
+
+Precedence (lowest to highest): built-in defaults -> config file -> env vars -> CLI flags.
+
+---
+
 ## CLI reference
 
 ### `hunch init`
@@ -359,91 +444,6 @@ Example:
 ```bash
 hunch predict --state "git add,git commit" --limit 5
 ```
-
----
-
-## Configuration
-
-### Environment variables
-
-| Variable | Field | Default |
-|----------|-------|---------|
-| `HUNCH_BIN` | Binary path | `hunch` (from PATH) |
-| `HUNCH_SOCKET` | Unix socket path | `~/.cache/hunch.sock` |
-| `HUNCH_DB_PATH` | SQLite database path | `~/.local/share/hunch.db` |
-| `HUNCH_DAEMON_BIN` | Daemon binary path | (same as `hunch`) |
-| `HUNCH_HALF_LIFE_HOURS` | Decay half-life | `720` (30 days) |
-| `HUNCH_MAX_IDLE_DAYS` | Hard cutoff: forget a transition untouched for this many days, regardless of count | `90` (`0` disables) |
-| `HUNCH_ALPHA` | Additive smoothing | `0.5` |
-| `HUNCH_BETA` | CWD-affinity boost strength | `0.75` |
-| `HUNCH_GAMMA` | Failure-rate suppression strength | `0.5` |
-| `HUNCH_DELTA` | Prior-outcome boost strength | `0.5` |
-| `HUNCH_EPSILON` | Confirmed-acceptance boost strength | `0.5` |
-| `HUNCH_MIN_CONFIDENCE` | Score a generalized match must reach to be shown | `0.10` |
-| `HUNCH_MIN_COUNT` | Times a command must have been seen before it is suggested | `2` |
-| `HUNCH_EXTRA_PARENTS` | Extra parent commands (comma-separated) | (none) |
-| `HUNCH_IGNORE` | Extra regexes for sensitive commands to never record (comma-separated) | (none) |
-| `HUNCH_LOG_LEVEL` | Log level | `info` |
-
-Each scoring strength (`beta`/`gamma`/`delta`/`epsilon`) is a soft,
-multiplicative adjustment that is the identity when its signal is absent; set
-any to `0` to disable that signal.
-
-`half_life_hours` and `max_idle_days` control two different things and are
-intentionally separate. `half_life_hours` governs how fast a *still-alive*
-transition's ranking influence fades - a command you ran 100 times legitimately
-keeps some pull longer than a one-off, and that's by design. `max_idle_days` is
-a flat, evidence-independent backstop: once you haven't touched something in
-that many days, it's forgotten outright, no matter how much of a habit it used
-to be. Set `max_idle_days = 0` to disable the hard cutoff and rely on
-half-life decay alone.
-
-`min_count` is how many times you must have run a command in a given context
-before hunch will suggest it. The default of `2` means one-off commands are
-never suggested: hunch predicts habits, and a habit is repeated by definition.
-This matters more than it sounds, because a command run once in a context you
-never revisit is the only candidate for that state, so it scores as the most
-confident suggestion possible on the least evidence possible. Set it to `1` to
-be suggested everything, including things you ran once by accident.
-
-`min_confidence` controls how readily hunch generalizes. An exact-context match
-is always shown. When there is no exact match, hunch widens the context (drop
-the directory, then drop the oldest command) and shows the result only if it
-scores at least this high. Lower it to see suggestions more often at the cost
-of more wrong ones; set it to `1` to suppress generalized suggestions entirely
-and only ever show exact-context matches. Sensitive commands matching a built-in or
-`HUNCH_IGNORE` pattern are never recorded (neither the transition nor the raw
-command), so secrets are not persisted or suggested back.
-
-### Config file
-
-Hunch looks for `config.toml` in the XDG config directory:
-
-| OS | Config path |
-|----|-------------|
-| Linux | `~/.config/hunch/config.toml` |
-| macOS | `~/.config/hunch/config.toml` |
-| Windows | `%AppData%\hunch\config.toml` |
-
-```toml
-socket = "/run/user/1000/hunch.sock"
-db_path = "/var/lib/hunch/hunch.db"
-half_life_hours = 720
-max_idle_days = 90     # forget anything untouched this long, regardless of count
-alpha = 0.5
-beta = 0.75    # CWD-affinity boost
-gamma = 0.5    # failure-rate suppression
-delta = 0.5    # prior-outcome boost
-epsilon = 0.5  # confirmed-acceptance boost
-min_confidence = 0.10  # bar for suggestions from a generalized context
-min_count = 2          # ignore commands you have only run once
-accept_keys = ["right", "end"]
-extra_parents = ["mycli", "teamtool"]
-ignore = ['(?i)--api-token']  # extra sensitive-command patterns to never record
-log_level = "info"
-```
-
-Precedence (lowest to highest): built-in defaults -> config file -> env vars -> CLI flags.
 
 ---
 
