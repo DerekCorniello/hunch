@@ -24,7 +24,18 @@ func startDaemon(t *testing.T, opts Options) (context.Context, context.CancelFun
 	opts.Socket = testSockPath(t)
 	opts.DBPath = filepath.Join(t.TempDir(), "hunch.db")
 
+	// done closes when Run returns, which happens only after its deferred
+	// stop() has fully completed - including st.close(). Waiting on that,
+	// rather than on the socket file disappearing, matters: stop() removes
+	// the socket partway through its own sequence, before every resource is
+	// released, so a socket-based wait can let this test's t.TempDir()
+	// cleanup try to remove the database file while the daemon's SQLite
+	// handle is still being torn down. That race is losable on any platform
+	// but Windows loses it reliably (see fa62763, which fixed the same
+	// symptom in one test but not this shared helper).
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		if err := Run(ctx, opts); err != nil && ctx.Err() == nil {
 			t.Logf("daemon error: %v", err)
 		}
@@ -34,12 +45,10 @@ func startDaemon(t *testing.T, opts Options) (context.Context, context.CancelFun
 
 	t.Cleanup(func() {
 		cancel()
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, err := os.Stat(opts.Socket); os.IsNotExist(err) {
-				return
-			}
-			time.Sleep(50 * time.Millisecond)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("daemon did not shut down")
 		}
 	})
 
