@@ -137,6 +137,13 @@ _hunch_start_coproc() {
 	# own stderr to /dev/null.
 	{ exec {_HUNCH_W}>&p } 2>/dev/null || { _hunch_stop_coproc; return 1; }
 	{ exec {_HUNCH_R}<&p } 2>/dev/null || { _hunch_stop_coproc; return 1; }
+	# Once the function returns, no_monitor is restored and the coproc would
+	# be tracked as a job again - so its later SIGKILL (e.g. when hunch is
+	# killed or the daemon exits) prints a "[pid] + killed ... serve" notice at
+	# the next prompt in every shell running it. % is the coprocess job
+	# specifier, so this disowns exactly our coproc, not the user's other
+	# background jobs.
+	disown % 2>/dev/null
 	zle -F "$_HUNCH_R" _hunch_on_response
 	return 0
 }
