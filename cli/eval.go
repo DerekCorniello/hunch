@@ -56,19 +56,23 @@ func cmdEval(args []string) error {
 }
 
 func printEvalResult(r eval.Result, historySize int) {
-	fmt.Printf("\nhunch eval\n\n")
+	fmt.Printf("\n%s\n\n", bold("hunch eval"))
 	fmt.Printf("history:   %d commands\n", historySize)
 	fmt.Printf("scored:    %d (after warmup)\n", r.Scored)
 	fmt.Printf("offered:   %d (%.1f%% of scored had any suggestion)\n", r.Offered, 100*r.Rate(r.Offered))
 	fmt.Println()
-	fmt.Printf("top-1:     %.1f%%\n", 100*r.Rate(r.Top1))
-	fmt.Printf("top-3:     %.1f%%\n", 100*r.Rate(r.Top3))
-	fmt.Printf("top-5:     %.1f%%\n", 100*r.Rate(r.Top5))
+	fmt.Printf("%s %.1f%%\n", bold("top-1:"), 100*r.Rate(r.Top1))
+	fmt.Printf("%s %.1f%%\n", bold("top-3:"), 100*r.Rate(r.Top3))
+	fmt.Printf("%s %.1f%%\n", bold("top-5:"), 100*r.Rate(r.Top5))
 	fmt.Println()
 	fmt.Printf("baseline:  %.1f%% (always guess your single most frequent command)\n", 100*r.Rate(r.BaselineTop1))
 
 	lift := r.Rate(r.Top1) - r.Rate(r.BaselineTop1)
-	fmt.Printf("lift:      %+.1f points over baseline\n", 100*lift)
+	c := green
+	if lift < 0 {
+		c = red
+	}
+	fmt.Printf("%s %s points over baseline\n", bold("lift:"), c(fmt.Sprintf("%+.1f", 100*lift)))
 	fmt.Println()
 	fmt.Println("Each command is predicted using only the commands before it,")
 	fmt.Println("which is how the daemon sees your history as you work.")

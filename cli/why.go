@@ -64,14 +64,14 @@ func recentZshCommands(n int) []string {
 }
 
 func printExplainResult(resp ipc.ExplainResponse) {
-	fmt.Println("hunch why")
+	fmt.Println(bold("hunch why"))
 	fmt.Println()
 
 	state := "(none)"
 	if len(resp.State) > 0 {
 		state = strings.Join(resp.State, " -> ")
 	}
-	fmt.Printf("context matched: %s\n", resp.Level)
+	fmt.Printf("%s %s\n", bold("context matched:"), teal(resp.Level))
 	fmt.Printf("  cwd:   %s\n", displayOrNone(resp.CWD))
 	fmt.Printf("  state: %s\n", state)
 	fmt.Println()
@@ -79,7 +79,7 @@ func printExplainResult(resp ipc.ExplainResponse) {
 	fmt.Println()
 
 	if len(resp.Breakdown) == 0 {
-		fmt.Println("No candidates at this context - nothing has been observed here yet, or every candidate was gated out.")
+		fmt.Println(yellow("No candidates at this context - nothing has been observed here yet, or every candidate was gated out."))
 		return
 	}
 

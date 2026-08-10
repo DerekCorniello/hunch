@@ -364,7 +364,7 @@ func cmdClientStats() error {
 	if err != nil {
 		return fmt.Errorf("marshal stats: %w", err)
 	}
-	fmt.Println(string(b))
+	fmt.Println(colorJSON(b))
 	return nil
 }
 

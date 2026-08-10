@@ -3,11 +3,37 @@
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Hunch predicts your next shell command from your own history. Local, statistical, zero telemetry.
+Hunch predicts your next shell command from your own history. It learns which
+commands tend to follow which, then shows the most likely next one as inline
+ghost text — accept it with a keystroke, or keep typing.
 
-It learns which commands tend to follow which, then shows the most likely next one as ghost text - accept it with a keystroke, or keep typing. No LLM, no cloud, no accounts, and it gets better the more you use it.
+Local, statistical, zero telemetry. No LLM, no cloud, no accounts, and it gets
+better the more you use it.
 
-**zsh only, for now.** Hunch needs a per-keystroke prediction path and a ghost-text primitive; zsh's ZLE is the only shell scripting layer that gives a plugin both. See [Shell support](#shell-support) for why bash, fish, and PowerShell aren't there yet, and what it would take.
+**zsh only, for now.** Hunch needs a per-keystroke prediction path plus a
+ghost-text primitive; zsh's ZLE is the only shell scripting layer that gives a
+plugin both. See [Shell support](#shell-support) for why bash, fish, and
+PowerShell aren't there yet.
+
+---
+
+## Demo
+
+Hunch anticipates your git flow and hydrates the suggestion from your own
+history — accept it with `Right`/`End`, or type over the ghost if you want
+something slightly different:
+
+<img src="demo/demo-usage.gif" alt="Hunch in action: a git workflow" width="720">
+
+Hunch learned `mkdir → cd` in one directory, then transferred that habit to a
+brand-new subdirectory it had never seen. `hunch why` shows exactly which
+context matched:
+
+<img src="demo/demo-why.gif" alt="Hunch transfers a habit across directories, and explains it" width="720">
+
+Setting up is one command, and `hunch doctor` verifies the whole install:
+
+<img src="demo/demo-setup.gif" alt="hunch init --auto and hunch doctor" width="720">
 
 ---
 

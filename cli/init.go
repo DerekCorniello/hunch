@@ -43,11 +43,11 @@ func cmdInit(args []string) error {
 		if err := appendToRc(integrationPath); err != nil {
 			return fmt.Errorf("auto-append: %w", err)
 		}
-		fmt.Printf("Added source line to %s\n", rcFile)
-		fmt.Printf("Restart your shell or run: source %s\n", rcFile)
+		fmt.Printf("%s: %s\n", green("Added source line"), bold(rcFile))
+		fmt.Printf("%s\n", bold("Restart your shell or run: source "+rcFile))
 	} else {
 		fmt.Printf("Add this line to your %s, then restart your shell or run source %s:\n\n", rcFile, rcFile)
-		fmt.Printf("    source %s\n", integrationPath)
+		fmt.Printf("    %s\n", teal("source "+integrationPath))
 	}
 
 	warnPath()

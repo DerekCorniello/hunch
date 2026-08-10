@@ -44,7 +44,7 @@ func (c check) render(width int) string {
 }
 
 func cmdDoctor() error {
-	fmt.Println("hunch doctor")
+	fmt.Println(bold("hunch doctor"))
 	fmt.Println()
 
 	checks := runDiagnostics(daemon.LoadConfig())
@@ -58,7 +58,7 @@ func cmdDoctor() error {
 
 	failed := false
 	for _, c := range checks {
-		fmt.Println(c.render(width))
+		fmt.Println(colorizeCheck(c, width))
 		if c.status == statusProblem {
 			failed = true
 		}
@@ -66,11 +66,31 @@ func cmdDoctor() error {
 
 	fmt.Println()
 	if !failed {
-		fmt.Println("All checks passed.")
+		fmt.Println(green("All checks passed."))
 		return nil
 	}
-	fmt.Println("Some checks failed - see warnings above.")
+	fmt.Println(red("Some checks failed - see warnings above."))
 	return fmt.Errorf("doctor: some checks failed")
+}
+
+// colorizeCheck wraps just the detail in a status color so the label column
+// still lines up (escape codes would offset the fixed-width padding if they
+// were applied to the whole line first).
+func colorizeCheck(c check, width int) string {
+	line := c.render(width)
+	if !colorize {
+		return line
+	}
+	detail := c.detail
+	switch c.status {
+	case statusOK:
+		detail = green(detail)
+	case statusProblem:
+		detail = red(detail)
+	case statusInfo:
+		detail = yellow(detail)
+	}
+	return line[:len(line)-len(c.detail)] + detail
 }
 
 // runDiagnostics gathers every check in display order. It performs no output,
