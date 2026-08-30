@@ -694,10 +694,10 @@ func synthesize(template string, argTokens []string) (string, bool) {
 
 // tokenBoost is the maximum boost for a matching argument token at position 0
 // (most recent). The actual boost decays linearly with position in argTokens,
-// so position 0 gets 200, position 1 gets ~146, position 2 gets ~93, etc.
-// This ensures the most recently mentioned file/script name gets the strongest
-// signal while still crediting older mentions.
-const tokenBoost = 200.0
+// so position 0 gets 15, position 1 gets ~11, position 2 gets ~7, etc.
+// Kept modest so it breaks ties between similar candidates without overriding
+// established habits (base scores from count * recency).
+const tokenBoost = 15.0
 
 // argLookback is how many of the most recent raw commands collectArgTokens
 // scans for reusable argument tokens. Wide enough that a file or repo name

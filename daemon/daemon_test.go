@@ -162,8 +162,8 @@ func TestDaemonRecordPredictRoundtrip(t *testing.T) {
 func TestDaemonPredictSynthesizesSingleSlotFromRecentArg(t *testing.T) {
 	_, _, socket := startDaemon(t, testConfig())
 
-	// A strong, but unrelated, "npm view react" habit.
-	for i := 0; i < 20; i++ {
+	// A moderate, but unrelated, "npm view react" habit.
+	for i := 0; i < 5; i++ {
 		recordObs(t, socket, map[string]interface{}{
 			"state": []string{"npm ls react"},
 			"next":  "npm view react",

@@ -184,7 +184,7 @@ func TestRawStoreSynthesizesUnseenSingleSlotCommand(t *testing.T) {
 	s := newRawStore(testHalfLife)
 	now := time.Now()
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 5; i++ {
 		s.record(nil, "npm view STR", "npm view react", now)
 	}
 
@@ -852,14 +852,13 @@ func TestTokenBoostRecencyWeightsMostRecentHighest(t *testing.T) {
 	habitScore := s.score(habitEntry, "cd /home/user/projects", []string{"/tmp/test"}, now)
 	recentScore := s.score(recentEntry, "cd /tmp/test", []string{"/tmp/test"}, now)
 
-	// The recent entry should score higher because:
-	// - It matches the token boost at position 0 (200 points)
-	// - The habit entry doesn't match any token, so no boost
-	// - Even with count=1 vs count=50, the 200-point boost should win
-	if recentScore <= habitScore {
-		t.Errorf("recent entry score %.1f should beat habit score %.1f; "+
-			"recent=%.1f (count=1, token match), habit=%.1f (count=50, no token match)",
-			recentScore, habitScore, recentScore, habitScore)
+	// The habit should win: a single recent mention should not override an
+	// established habit. The token boost (15) is modest enough that count=50
+	// (base score ~50) still beats count=1 + boost (1+15=16).
+	if habitScore <= recentScore {
+		t.Errorf("habit score %.1f should beat recent score %.1f; "+
+			"habit=%.1f (count=50, no token match), recent=%.1f (count=1, token match)",
+			habitScore, recentScore, habitScore, recentScore)
 	}
 }
 
@@ -884,10 +883,10 @@ func TestTokenBoostDecaysWithPosition(t *testing.T) {
 		t.Errorf("position 0 score %.1f should be > position 2 score %.1f", scorePos0, scorePos2)
 	}
 
-	// Verify the boost difference is significant (not just rounding)
+	// Verify the boost difference is positive (position 0 gets more than position 2)
 	boostDiff := scorePos0 - scorePos2
-	if boostDiff < 50 { // At least 50 point difference
-		t.Errorf("boost difference %.1f should be > 50 for meaningful recency weighting", boostDiff)
+	if boostDiff <= 0 {
+		t.Errorf("boost difference %.1f should be > 0 for meaningful recency weighting", boostDiff)
 	}
 }
 
