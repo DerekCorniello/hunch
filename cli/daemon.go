@@ -101,7 +101,7 @@ func cmdDaemonStop() error {
 		}
 	}
 
-	fmt.Println("hunch daemon stopped")
+	fmt.Println(green("hunch daemon stopped"))
 	return nil
 }
 
@@ -111,19 +111,19 @@ func cmdDaemonStatus() error {
 	socketPath := opts.Socket
 
 	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
-		fmt.Println("hunch daemon is stopped")
+		fmt.Println(red("hunch daemon is stopped"))
 		return ErrDaemonNotRunning
 	}
 
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
-		fmt.Println("hunch daemon is stopped (no pid file)")
+		fmt.Println(red("hunch daemon is stopped (no pid file)"))
 		return ErrDaemonNotRunning
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
 	if err != nil {
-		fmt.Println("hunch daemon is stopped (invalid pid)")
+		fmt.Println(red("hunch daemon is stopped (invalid pid)"))
 		return ErrDaemonNotRunning
 	}
 
@@ -132,11 +132,11 @@ func cmdDaemonStatus() error {
 		return fmt.Errorf("check process: %w", err)
 	}
 	if !alive {
-		fmt.Println("hunch daemon is stopped (stale lock)")
+		fmt.Println(red("hunch daemon is stopped (stale lock)"))
 		return ErrDaemonNotRunning
 	}
 
-	fmt.Printf("hunch daemon is running (pid: %d, socket: %s)\n", pid, socketPath)
+	fmt.Println(green(fmt.Sprintf("hunch daemon is running (pid: %d, socket: %s)", pid, socketPath)))
 	return nil
 }
 

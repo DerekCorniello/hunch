@@ -33,7 +33,9 @@ func writeOK(conn net.Conn) error {
 // writeSuggestions writes a predict response.
 func writeSuggestions(conn net.Conn, suggestions []types.Suggestion) error {
 	resp := ipc.SuggestionsResponse{Suggestions: suggestions}
-	return json.NewEncoder(conn).Encode(resp)
+	enc := json.NewEncoder(conn)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(resp)
 }
 
 // writeTransitions writes an export response.
@@ -43,13 +45,17 @@ func writeTransitions(conn net.Conn, transitions []graph.Transition) error {
 		tj[i] = ipc.TransitionFromGraph(t)
 	}
 	resp := ipc.TransitionsResponse{Transitions: tj}
-	return json.NewEncoder(conn).Encode(resp)
+	enc := json.NewEncoder(conn)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(resp)
 }
 
 // writeError writes an error response.
 func writeError(conn net.Conn, msg string) error {
 	resp := ipc.ErrorResponse{Error: msg}
-	return json.NewEncoder(conn).Encode(resp)
+	enc := json.NewEncoder(conn)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(resp)
 }
 
 // parseAt parses an RFC 3339 timestamp. Returns the zero time if s is empty.

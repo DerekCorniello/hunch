@@ -12,12 +12,12 @@ import (
 
 func cmdUninstall(skipConfirm bool) error {
 	if !skipConfirm {
-		fmt.Print("This will remove all hunch data and configuration. Continue? [y/N]: ")
+		fmt.Print(yellow("This will remove all hunch data and configuration. Continue? [y/N]: "))
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer != "y" && answer != "yes" {
-			fmt.Println("Uninstall cancelled.")
+			fmt.Println(yellow("Uninstall cancelled."))
 			return nil
 		}
 	}
@@ -26,7 +26,7 @@ func cmdUninstall(skipConfirm bool) error {
 
 	if err := cmdDaemonStop(); err != nil {
 		if !strings.Contains(err.Error(), "not running") {
-			fmt.Fprintf(os.Stderr, "warning: stop daemon: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%s\n", red(fmt.Sprintf("warning: stop daemon: %v", err)))
 		}
 	}
 
@@ -38,7 +38,7 @@ func cmdUninstall(skipConfirm bool) error {
 		if err := os.Remove(opts.Socket); err == nil {
 			removed++
 		} else if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "  warning: remove socket: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%s\n", red(fmt.Sprintf("  warning: remove socket: %v", err)))
 		}
 	}
 
@@ -77,21 +77,21 @@ func cmdUninstall(skipConfirm bool) error {
 
 	rcPath := zshrcPath()
 	if changed, err := removeRcLine(rcPath); err != nil {
-		fmt.Fprintf(os.Stderr, "  warning: clean %s: %v\n", rcPath, err)
+		fmt.Fprintf(os.Stderr, "%s\n", red(fmt.Sprintf("  warning: clean %s: %v", rcPath, err)))
 	} else if changed {
 		removed++
 	}
 
 	if removed > 0 {
-		fmt.Println("  done.")
+		fmt.Println(green("  done."))
 	} else {
-		fmt.Println("  nothing to remove.")
+		fmt.Println(yellow("  nothing to remove."))
 	}
 
 	fmt.Println()
-	fmt.Println("Hunch has been uninstalled from your system.")
+	fmt.Println(green("Hunch has been uninstalled from your system."))
 	if execPath, err := os.Executable(); err == nil {
-		fmt.Printf("The binary at %s can be deleted manually.\n", execPath)
+		fmt.Printf("The binary at %s can be deleted manually.\n", teal(execPath))
 	}
 	return nil
 }

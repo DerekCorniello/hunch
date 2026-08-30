@@ -182,6 +182,9 @@ _hunch_clear_display() {
 	# may have set its own suggestion since.
 	if [[ -n "$_HUNCH_DISPLAY" && "$POSTDISPLAY" == "$_HUNCH_DISPLAY" ]]; then
 		POSTDISPLAY=""
+		if (( $+functions[_zsh_highlight] )); then
+			_zsh_highlight
+		fi
 	fi
 	_HUNCH_SUGGESTION=""
 	_HUNCH_DISPLAY=""

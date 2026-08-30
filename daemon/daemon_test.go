@@ -153,6 +153,53 @@ func TestDaemonRecordPredictRoundtrip(t *testing.T) {
 	}
 }
 
+// End-to-end reproduction of the reported bug through the real predict
+// handler - not just rawStore in isolation (see rawstore_test.go for
+// synthesize's own unit coverage) - so the wiring between req.State,
+// collectArgTokens, and rawStore.hydrate is what's actually under test.
+// "npm ls lodash" should bias the next "npm view" toward lodash, not
+// whichever package was historically most popular with npm view.
+func TestDaemonPredictSynthesizesSingleSlotFromRecentArg(t *testing.T) {
+	_, _, socket := startDaemon(t, testConfig())
+
+	// A strong, but unrelated, "npm view react" habit.
+	for i := 0; i < 20; i++ {
+		recordObs(t, socket, map[string]interface{}{
+			"state": []string{"npm ls react"},
+			"next":  "npm view react",
+		})
+	}
+
+	// Sanity-check the setup before testing the fix: without it, this
+	// assertion would already fail for reasons unrelated to synthesis.
+	if got := predictTop(t, socket, []string{"npm ls lodash"}, "", ""); got != "npm view STR" {
+		t.Fatalf("template = %q, want npm view STR (test setup problem, not the fix under test)", got)
+	}
+
+	// "npm view lodash" itself has never been recorded - only "npm ls
+	// lodash" was just typed.
+	conn := dial(t, socket)
+	defer conn.Close()
+	writeJSON(t, conn, map[string]interface{}{
+		"op":    "predict",
+		"state": []string{"npm ls lodash"},
+		"limit": 1,
+	})
+	var resp struct {
+		Suggestions []struct {
+			Raw string `json:"raw"`
+		} `json:"suggestions"`
+	}
+	readJSON(t, conn, &resp)
+
+	if len(resp.Suggestions) != 1 {
+		t.Fatalf("expected 1 suggestion, got %d", len(resp.Suggestions))
+	}
+	if resp.Suggestions[0].Raw != "npm view lodash" {
+		t.Errorf("raw = %q, want the synthesized \"npm view lodash\", not the stale favorite", resp.Suggestions[0].Raw)
+	}
+}
+
 // predictTop returns the top template the daemon predicts for the given state,
 // optionally scoped to a CWD and prior outcome.
 func predictTop(t *testing.T, socket string, state []string, cwd, priorOutcome string) string {

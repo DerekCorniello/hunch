@@ -35,18 +35,19 @@ const (
 )
 
 func cmdUpdate() error {
-	fmt.Println("hunch update")
+	fmt.Println(bold("hunch update"))
 	fmt.Println()
-	fmt.Printf("current version: %s\n", Version)
+	fmt.Printf("current version: %s\n", teal(Version))
 
 	latest, err := fetchLatestVersion()
 	if err != nil {
 		return fmt.Errorf("check latest version: %w", err)
 	}
-	fmt.Printf("latest version:  %s\n", latest)
+	fmt.Printf("latest version:  %s\n", teal(latest))
 
 	if Version != "dev" && Version == latest {
-		fmt.Println("\nAlready up to date.")
+		fmt.Println()
+		fmt.Println(green("Already up to date."))
 		return nil
 	}
 
@@ -82,11 +83,11 @@ func cmdUpdate() error {
 		return withPermissionHint(fmt.Errorf("replace %s: %w", exe, err), exe)
 	}
 
-	fmt.Printf("Updated %s to %s.\n", exe, latest)
+	fmt.Println(green(fmt.Sprintf("Updated %s to %s.", exe, latest)))
 	fmt.Println("Restarting daemon...")
 	if err := restartDaemon(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: restart daemon: %v\n", err)
-		fmt.Println("Restart manually: hunch daemon stop && hunch daemon start")
+		fmt.Fprintf(os.Stderr, "%s\n", red(fmt.Sprintf("warning: restart daemon: %v", err)))
+		fmt.Println(yellow("Restart manually: hunch daemon stop && hunch daemon start"))
 	}
 	return nil
 }

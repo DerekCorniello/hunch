@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/DerekCorniello/hunch/core/graph"
@@ -100,13 +101,15 @@ func (d *daemon) respondTransitions(conn net.Conn, transitions []graph.Transitio
 // respondJSON marshals v as the whole response. what names the payload so a
 // marshal failure is attributable.
 func (d *daemon) respondJSON(conn net.Conn, what string, v any) {
-	data, err := json.Marshal(v)
-	if err != nil {
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		d.log.Error("marshal response", "what", what, "error", err)
 		d.respondError(conn, "marshal %s", what)
 		return
 	}
-	if _, err := fmt.Fprintln(conn, string(data)); err != nil {
+	if _, err := conn.Write([]byte(buf.String())); err != nil {
 		d.log.Debug("write json response", "what", what, "error", err)
 	}
 }
@@ -211,6 +214,22 @@ func (d *daemon) handlePredict(conn net.Conn, req ipc.Request) {
 	}
 
 	suggestions := d.predictWithFallback(prev, cwd, types.Outcome(req.PriorOutcome), req.Prefix, at)
+
+	// Suppress self-transitions: don't suggest the same command template
+	// that was just run. It's rarely useful to suggest "mkdir" after "mkdir",
+	// and it's confusing to the user.
+	if len(prev) > 0 {
+		lastTemplate := prev[len(prev)-1].Template
+		if lastTemplate != "" {
+			var filtered []types.Suggestion
+			for _, s := range suggestions {
+				if s.Template != lastTemplate {
+					filtered = append(filtered, s)
+				}
+			}
+			suggestions = filtered
+		}
+	}
 
 	if req.Prefix != "" {
 		suggestions = filterByPrefix(suggestions, req.Prefix, d.parents)

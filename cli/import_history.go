@@ -102,7 +102,7 @@ func ensureDaemonRunning() error {
 }
 
 func runImport(path string, threads int, progress func(string)) error {
-	progress("Parsing zsh history")
+	progress(bold("Parsing zsh history"))
 
 	rawCmds, err := parseZshHistory(path)
 	if err != nil {
@@ -132,7 +132,7 @@ func runImport(path string, threads int, progress func(string)) error {
 		return fmt.Errorf("send raw examples to daemon: %w", err)
 	}
 
-	progress("imported.\n")
+	progress(green("imported.") + "\n")
 	return nil
 }
 
