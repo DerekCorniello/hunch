@@ -295,12 +295,15 @@ _hunch_cycle_prev() {
 # while typing into a suggestion), and fires an async query whenever the
 # buffer has changed since the last one.
 _hunch_update() {
+	# Repaint from cache only while the cached suggestion still has a
+	# non-empty suffix to show. If it no longer extends the buffer - including
+	# when the buffer has caught up to it exactly, e.g. after pasting the rest
+	# of the completion - the ghost text is stale and must be cleared.
+	# Otherwise an accept key would append text that is already in the buffer.
 	if [[ -n "$_HUNCH_SUGGESTION" && -n "$BUFFER" && "$_HUNCH_SUGGESTION" == "$BUFFER"* && "$_HUNCH_SUGGESTION" != "$BUFFER" ]]; then
 		_hunch_set_display "$_HUNCH_SUGGESTION" "${_HUNCH_SUGGESTION#$BUFFER}"
-	elif [[ -z "$_HUNCH_SUGGESTION" || "$_HUNCH_SUGGESTION" != "$BUFFER"* ]]; then
-		if [[ "$BUFFER" != "$_HUNCH_SENT" ]]; then
-			_hunch_clear_display
-		fi
+	elif [[ -n "$_HUNCH_DISPLAY" || "$BUFFER" != "$_HUNCH_SENT" ]]; then
+		_hunch_clear_display
 	fi
 
 	if [[ "$BUFFER" != "$_HUNCH_SENT" ]]; then
@@ -353,6 +356,17 @@ _hunch_navigate_up() {
 	_hunch_clear_display
 	_HUNCH_SENT=$'\0'
 	zle "${_HUNCH_ORIG_WIDGET[$KEYMAP:$KEYS]:-.up-line-or-history}"
+}
+
+# A paste jumps to a different buffer, so the suggestion cached for the old
+# buffer must not be repainted (and accepted) while the fresh query is in
+# flight. Run the original bracketed-paste widget, then invalidate the cache so
+# the redraw after the paste only shows the new response.
+_hunch_paste() {
+	local key="$KEYMAP:^[[200~"
+	zle "${_HUNCH_ORIG_WIDGET[$key]:-.bracketed-paste}"
+	_hunch_clear_display
+	_HUNCH_SENT=$'\0'
 }
 
 _hunch_navigate_down() {
@@ -412,6 +426,7 @@ zle -N _hunch_accept_or_forward
 zle -N _hunch_accept_end
 zle -N _hunch_navigate_up
 zle -N _hunch_navigate_down
+zle -N _hunch_paste
 zle -N _hunch_line_finish
 zle -N _hunch_cycle_next
 zle -N _hunch_cycle_prev
@@ -507,6 +522,7 @@ for _hunch_km in main vicmd viins; do
 	_hunch_capture_orig_widget "$_hunch_km" '^[OB'
 	_hunch_capture_orig_widget "$_hunch_km" '^[[C'
 	_hunch_capture_orig_widget "$_hunch_km" '^[[F'
+	_hunch_capture_orig_widget "$_hunch_km" '^[[200~'
 done
 unset _hunch_km
 
@@ -525,6 +541,13 @@ for _hunch_km in main vicmd viins; do
 	bindkey -M "$_hunch_km" '^[[B' _hunch_navigate_down
 	bindkey -M "$_hunch_km" '^[OA' _hunch_navigate_up
 	bindkey -M "$_hunch_km" '^[OB' _hunch_navigate_down
+done
+unset _hunch_km
+
+# Invalidate the cached suggestion after a bracketed paste so the accept keys
+# cannot act on the pre-paste suggestion.
+for _hunch_km in main vicmd viins; do
+	bindkey -M "$_hunch_km" '^[[200~' _hunch_paste
 done
 unset _hunch_km
 

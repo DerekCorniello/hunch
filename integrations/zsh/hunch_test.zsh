@@ -251,6 +251,44 @@ POSTDISPLAY="foreign" # another plugin took over
 _hunch_cycle_next
 assert_eq "S15 cycle inert when not owning POSTDISPLAY" "$POSTDISPLAY" "foreign"
 
+# S16: pasting the rest of the completion makes BUFFER equal the cached
+# suggestion. The ghost suffix is now stale and must be cleared so the next
+# accept key does not append text that is already there; a fresh query still
+# fires for the new buffer.
+reset_state
+BUFFER="git status" CURSOR=10
+POSTDISPLAY="status" _HUNCH_DISPLAY="status" _HUNCH_SUGGESTION="git status"
+_HUNCH_SENT="git "
+_hunch_update
+assert_eq "S16 ghost cleared when buffer catches up to suggestion" "$POSTDISPLAY" ""
+assert_eq "S16 display var cleared when buffer catches up" "$_HUNCH_DISPLAY" ""
+assert_eq "S16 fresh query fired after paste" "$_Q_PREFIX" "git status"
+_hunch_owns_suggestion && r=yes || r=no
+assert_eq "S16 accept key no longer owns stale ghost" "$r" "no"
+
+# S17: pasting text that the cached suggestion does not extend clears the
+# ghost immediately, before the async response lands.
+reset_state
+BUFFER="ls -la" CURSOR=6
+POSTDISPLAY="git status" _HUNCH_DISPLAY="git status" _HUNCH_SUGGESTION="git status"
+_HUNCH_SENT=$'\0'
+_hunch_update
+assert_eq "S17 non-extending paste clears ghost" "$POSTDISPLAY" ""
+assert_eq "S17 query fired for pasted buffer" "$_Q_PREFIX" "ls -la"
+
+# S18: a bracketed paste discards the suggestion cached for the pre-paste
+# buffer, so an immediate accept key cannot append stale text while the fresh
+# query is in flight. The next redraw re-queries from scratch.
+reset_state
+BUFFER="git status" CURSOR=10
+POSTDISPLAY="status" _HUNCH_DISPLAY="status" _HUNCH_SUGGESTION="git status"
+_HUNCH_SENT="git "
+_hunch_paste
+assert_eq "S18 paste clears ghost" "$POSTDISPLAY" ""
+assert_eq "S18 paste invalidates sent buffer" "$_HUNCH_SENT" $'\0'
+_hunch_update
+assert_eq "S18 next redraw queries pasted buffer" "$_Q_PREFIX" "git status"
+
 # ---- result ---------------------------------------------------------------
 
 if (( _fail )); then
