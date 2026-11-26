@@ -68,6 +68,7 @@ reset_state() {
 	_HUNCH_SUGGESTION=""
 	_HUNCH_DISPLAY=""
 	_HUNCH_SENT=$'\0'
+	_HUNCH_PASTING=0
 	_HUNCH_CANDIDATES=()
 	_HUNCH_CYCLE_IDX=0
 	_Q_CALLED=0
@@ -160,9 +161,10 @@ assert_eq "S7 cursor at end" "$CURSOR" "10"
 assert_eq "S7 display cleared after accept" "$_HUNCH_DISPLAY" ""
 
 # S8: ownership gate - accept keys only act when hunch is the plugin currently
-# showing the ghost text and the cursor is at end of buffer.
+# showing the ghost text, the cursor is at end of buffer, and the cached
+# suggestion still extends the buffer.
 reset_state
-BUFFER="git st" CURSOR=6 _HUNCH_DISPLAY="atus" POSTDISPLAY="atus"
+BUFFER="git st" CURSOR=6 _HUNCH_DISPLAY="atus" POSTDISPLAY="atus" _HUNCH_SUGGESTION="git status"
 _hunch_owns_suggestion && r=yes || r=no
 assert_eq "S8 owns when POSTDISPLAY matches and cursor at end" "$r" "yes"
 POSTDISPLAY="something-else"
@@ -278,16 +280,53 @@ assert_eq "S17 query fired for pasted buffer" "$_Q_PREFIX" "ls -la"
 
 # S18: a bracketed paste discards the suggestion cached for the pre-paste
 # buffer, so an immediate accept key cannot append stale text while the fresh
-# query is in flight. The next redraw re-queries from scratch.
+# query is in flight. The redraw that follows the paste (which inserts the new
+# text) re-queries from scratch.
 reset_state
-BUFFER="git status" CURSOR=10
+BUFFER="git " CURSOR=5
 POSTDISPLAY="status" _HUNCH_DISPLAY="status" _HUNCH_SUGGESTION="git status"
 _HUNCH_SENT="git "
 _hunch_paste
 assert_eq "S18 paste clears ghost" "$POSTDISPLAY" ""
-assert_eq "S18 paste invalidates sent buffer" "$_HUNCH_SENT" $'\0'
+assert_eq "S18 paste marks pre-paste buffer as sent" "$_HUNCH_SENT" "git "
+BUFFER="git status" CURSOR=10 # the original paste widget inserts the text
 _hunch_update
 assert_eq "S18 next redraw queries pasted buffer" "$_Q_PREFIX" "git status"
+
+# S19: the reported paste bug - the buffer becomes something the cached
+# suggestion does not extend, but its ghost is still in POSTDISPLAY. The accept
+# key must not append it; it must clear the stale ghost and forward instead.
+reset_state
+BUFFER="curl localhost:5173" CURSOR=19
+POSTDISPLAY="localhost:8080" _HUNCH_DISPLAY="localhost:8080" _HUNCH_SUGGESTION="curl localhost:8080"
+_HUNCH_SENT="curl "
+_hunch_owns_suggestion && r=yes || r=no
+assert_eq "S19 stale suggestion is not owned" "$r" "no"
+_hunch_accept_or_forward
+assert_eq "S19 right arrow does not append stale suggestion" "$BUFFER" "curl localhost:5173"
+assert_eq "S19 right arrow wipes stale ghost before forwarding" "$POSTDISPLAY" ""
+
+# S20: a genuinely extending suggestion still owns the key, even with the
+# cursor at end of buffer.
+reset_state
+BUFFER="curl local" CURSOR=10
+POSTDISPLAY="host:8080" _HUNCH_DISPLAY="host:8080" _HUNCH_SUGGESTION="curl localhost:8080"
+_hunch_owns_suggestion && r=yes || r=no
+assert_eq "S20 extending suggestion is owned" "$r" "yes"
+_hunch_accept_or_forward
+assert_eq "S20 right arrow accepts extending suggestion" "$BUFFER" "curl localhost:8080"
+
+# S21: the paste bug seen with zsh-autosuggestions - a foreign plugin's stale
+# POSTDISPLAY survives the paste and would be accepted by its own forward-char
+# wrapper. hunch's paste handler must clear any leftover POSTDISPLAY, not just
+# its own.
+reset_state
+BUFFER="curl " CURSOR=5
+POSTDISPLAY="localhost:8080" _HUNCH_DISPLAY="" _HUNCH_SUGGESTION=""
+_HUNCH_SENT="curl "
+_hunch_paste
+assert_eq "S21 paste clears a foreign stale POSTDISPLAY" "$POSTDISPLAY" ""
+assert_eq "S21 paste marks pre-paste buffer as sent" "$_HUNCH_SENT" "curl "
 
 # ---- result ---------------------------------------------------------------
 

@@ -13,6 +13,7 @@ _HUNCH_PID=""
 _HUNCH_SUGGESTION=""
 _HUNCH_DISPLAY=""
 _HUNCH_SENT=$'\0' # sentinel that no real buffer equals, so the first edit queries
+_HUNCH_PASTING=0 # set while a paste widget runs; suppress stale response paints
 _HUNCH_PREV_OUTCOME="" # outcome of the most recently recorded command
 _HUNCH_LAST_SHOWN="" # suggestion on screen when the line was accepted (for acceptance detection)
 _HUNCH_LAST_HISTCMD=$HISTCMD # history event at load; the first precmd skips until this advances
@@ -240,6 +241,11 @@ _hunch_on_response() {
 # $BUFFER and $CURSOR are valid. It discards stale responses (the echoed prefix
 # no longer matches the buffer) and otherwise repaints the ghost text.
 _hunch_apply_response() {
+	# A response that lands mid-paste is for a buffer the paste is about to
+	# replace; discarding it prevents a stale ghost frame. The post-paste
+	# redraw issues a fresh query.
+	(( _HUNCH_PASTING )) && return
+
 	# If keys are still queued (e.g. the rest of an escape sequence like
 	# up-arrow ^[[A), bail out to avoid splitting the sequence. The response
 	# will be discarded; the next buffer change triggers a fresh query anyway.
@@ -322,15 +328,29 @@ _hunch_accept_full() {
 }
 
 # _hunch_owns_suggestion is true only when hunch is the plugin currently
-# showing the ghost text, so accept keys defer to other plugins otherwise.
+# showing the ghost text, the cursor is at the end, and the cached suggestion
+# still extends the current buffer. The last check matters when the buffer
+# changes without the cache being refreshed (e.g. a paste): accepting then
+# would append text that does not belong on the line.
 _hunch_owns_suggestion() {
-	[[ $CURSOR -eq ${#BUFFER} && -n "$_HUNCH_DISPLAY" && "$POSTDISPLAY" == "$_HUNCH_DISPLAY" ]]
+	[[ $CURSOR -eq ${#BUFFER} && -n "$_HUNCH_DISPLAY" && "$POSTDISPLAY" == "$_HUNCH_DISPLAY" \
+		&& -n "$_HUNCH_SUGGESTION" && "$_HUNCH_SUGGESTION" == "$BUFFER"* && "$_HUNCH_SUGGESTION" != "$BUFFER" ]]
+}
+
+# _hunch_stale_display is true when hunch's ghost is on screen but its cached
+# suggestion no longer extends the buffer. The ghost must be wiped before
+# forwarding an accept key, or another plugin (zsh-autosuggestions) will see
+# our stale POSTDISPLAY and append it.
+_hunch_stale_display() {
+	[[ -n "$_HUNCH_DISPLAY" && "$POSTDISPLAY" == "$_HUNCH_DISPLAY" ]] || return 1
+	[[ -z "$_HUNCH_SUGGESTION" || "$_HUNCH_SUGGESTION" == "$BUFFER" || "$_HUNCH_SUGGESTION" != "$BUFFER"* ]]
 }
 
 _hunch_accept_or_forward() {
 	if _hunch_owns_suggestion; then
 		_hunch_accept_full
 	else
+		_hunch_stale_display && _hunch_clear_display
 		# Compose the lookup key in a variable: writing the literal `^[[C`
 		# inside the subscript makes zsh try to balance its `[` brackets and
 		# fail with "invalid subscript".
@@ -343,6 +363,7 @@ _hunch_accept_end() {
 	if _hunch_owns_suggestion; then
 		_hunch_accept_full
 	else
+		_hunch_stale_display && _hunch_clear_display
 		local key="$KEYMAP:^[[F"
 		zle "${_HUNCH_ORIG_WIDGET[$key]:-.end-of-line}"
 	fi
@@ -359,14 +380,36 @@ _hunch_navigate_up() {
 }
 
 # A paste jumps to a different buffer, so the suggestion cached for the old
-# buffer must not be repainted (and accepted) while the fresh query is in
-# flight. Run the original bracketed-paste widget, then invalidate the cache so
-# the redraw after the paste only shows the new response.
+# buffer must not be shown (or accepted) while the fresh query is in flight.
+# The old ghost is dropped *before* the paste so no plugin redraws it mid-paste,
+# and zsh-autosuggestions is quieted so its paste wrapper does not refetch and
+# paint a new ghost before hunch has queried for the pasted buffer.
 _hunch_paste() {
 	local key="$KEYMAP:^[[200~"
-	zle "${_HUNCH_ORIG_WIDGET[$key]:-.bracketed-paste}"
+	local hunch_autosuggest_was_enabled=0
+
 	_hunch_clear_display
-	_HUNCH_SENT=$'\0'
+	POSTDISPLAY=""
+	if (( $+functions[_zsh_autosuggest_highlight_reset] )); then
+		_zsh_autosuggest_highlight_reset
+	fi
+	if (( ! ${+_ZSH_AUTOSUGGEST_DISABLED} )); then
+		_ZSH_AUTOSUGGEST_DISABLED=1
+		hunch_autosuggest_was_enabled=1
+	fi
+
+	# Treat the pre-paste buffer as already queried: any redraw inside the
+	# paste widget then cannot fire a query for a buffer that is about to
+	# change. The redraw after the paste sees a new buffer and queries it.
+	_HUNCH_SENT=$BUFFER
+	_HUNCH_PASTING=1
+
+	zle "${_HUNCH_ORIG_WIDGET[$key]:-.bracketed-paste}"
+
+	_HUNCH_PASTING=0
+	if (( hunch_autosuggest_was_enabled )); then
+		unset _ZSH_AUTOSUGGEST_DISABLED
+	fi
 }
 
 _hunch_navigate_down() {
