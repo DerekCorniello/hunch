@@ -9,10 +9,7 @@ make hooks
 # Build from source
 go build -ldflags "-X github.com/DerekCorniello/hunch/cli.Version=$(git describe --tags --always --dirty)" -o hunch .
 
-# Install the Go linter used by CI (put $(go env GOPATH)/bin on PATH)
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-
-# Run tests
+# Run tests (first lint run downloads the Go linter used by CI)
 make check
 ```
 

@@ -36,7 +36,7 @@ vet:
 lint:
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then echo "needs gofmt (run: make fmt):"; echo "$$unformatted"; exit 1; fi
-	golangci-lint run ./...
+	GOTOOLCHAIN=go1.25.0 $(GO) run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run ./...
 
 # Local convenience: skips zsh if not installed. CI runs the same checks
 # strictly (see the lint-shell job in .github/workflows/ci.yml).
