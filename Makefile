@@ -36,8 +36,7 @@ vet:
 lint:
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then echo "needs gofmt (run: make fmt):"; echo "$$unformatted"; exit 1; fi
-	$(GO) vet ./...
-	which staticcheck 2>/dev/null && staticcheck ./...
+	golangci-lint run ./...
 
 # Local convenience: skips zsh if not installed. CI runs the same checks
 # strictly (see the lint-shell job in .github/workflows/ci.yml).

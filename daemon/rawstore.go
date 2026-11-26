@@ -366,7 +366,6 @@ func (s *rawStore) topNLocked(stateTemplates []string, template, prefix string, 
 //     tail to resume with instead.
 func (s *rawStore) rankBucket(template string, inner map[string]rawEntry, prefix string, argTokens []string, at time.Time, n int) []rawScore {
 	scored := make([]rawScore, 0, len(inner)+1)
-	var total float64
 	// baseTotal tracks the sum of scores without token boost, used for
 	// diffuse detection. Token boost reflects recency, not habit strength,
 	// so including it would let one recently-mentioned candidate dominate
@@ -389,13 +388,11 @@ func (s *rawStore) rankBucket(template string, inner map[string]rawEntry, prefix
 			}
 		}
 		scored = append(scored, rawScore{Raw: raw, Score: sc})
-		total += sc
 		baseTotal += baseSc
 	}
 	if syn, ok := synthesize(template, argTokens); ok {
 		if _, exists := inner[syn]; !exists {
 			scored = append(scored, rawScore{Raw: syn, Score: tokenBoost})
-			total += tokenBoost
 			// Synthesized commands have no base score (never recorded)
 		}
 	}
